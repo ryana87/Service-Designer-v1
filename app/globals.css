@@ -1,26 +1,331 @@
+/* ============================================
+   FONT IMPORTS
+   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
 @import "tailwindcss";
 
+/* ============================================
+   DESIGN TOKENS
+   ============================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Base surfaces (three-tier light grey system) */
+  --bg-app: #e4e6e9;           /* Darkest - base background (entire app) */
+  --bg-sidebar: #F2F3F5;       /* Middle - project sidebar */
+  --bg-panel: #F7F8FA;         /* Lightest - main content & AI chat */
+  --bg-header: #F4F5F7;
+
+  /* Panel styling */
+  --panel-radius: 12px;
+  --panel-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --panel-gap: 12px;
+
+  /* Borders / dividers */
+  --border-subtle: #E5E7EB;
+  --border-muted: #EDF0F2;
+
+  /* Text */
+  --text-primary: #1F2937;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+
+  /* Hover / active / focus */
+  --bg-hover: #EEF2F7;
+  --bg-active: #E8EDF5;
+  --focus-outline: rgba(59, 130, 246, 0.35);
+
+  /* Accent */
+  --accent-primary: #3B82F6;
+  --accent-primary-hover: #2563EB;
+
+  /* Emotion colours (restrained) */
+  --emotion-1: #DC2626;
+  --emotion-2: #EA580C;
+  --emotion-3: #F59E0B;
+  --emotion-4: #84CC16;
+  --emotion-5: #16A34A;
+
+  /* Emotion tints (8-12% opacity for backgrounds) */
+  --emotion-1-tint: rgba(220, 38, 38, 0.1);
+  --emotion-2-tint: rgba(234, 88, 12, 0.1);
+  --emotion-3-tint: rgba(245, 158, 11, 0.1);
+  --emotion-4-tint: rgba(132, 204, 22, 0.1);
+  --emotion-5-tint: rgba(22, 163, 74, 0.1);
+
+  /* Nav rail (sits on app background, uses same color) */
+  --bg-nav-rail: transparent;
+  --bg-nav-rail-hover: rgba(0, 0, 0, 0.05);
+  --bg-nav-rail-active: rgba(0, 0, 0, 0.08);
+  --text-nav-rail: #6B7280;
+  --text-nav-rail-active: #1F2937;
+  
+  /* Phase header (dark grey for white text contrast) */
+  --bg-phase-header: #4B5563;
+  --bg-phase-header-border: #374151;
+  
+  /* Secondary accent for buttons */
+  --accent-secondary: #6366f1;
+
+  /* Sidebar widths */
+  --sidebar-nav-width: 52px;
+  --sidebar-nav-width-expanded: 180px;
+  --sidebar-assets-width: 240px;
+  --sidebar-ai-width: 300px;
+
+  /* Typography scale */
+  --font-size-phase: 13px;
+  --font-size-action: 13px;
+  --font-size-label: 12px;
+  --font-size-cell: 12px;
+  --font-size-meta: 11px;
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+[data-theme="dark"] {
+  /* Base surfaces */
+  --bg-app: #0F1419;
+  --bg-sidebar: #1A1F26;
+  --bg-panel: #20262D;
+  --bg-header: #1A1F26;
+
+  /* Panel styling */
+  --panel-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+
+  /* Borders / dividers */
+  --border-subtle: #2D3339;
+  --border-muted: #252B32;
+
+  /* Text */
+  --text-primary: #F9FAFB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+
+  /* Hover / active / focus */
+  --bg-hover: #2A3038;
+  --bg-active: #343B44;
+  --focus-outline: rgba(59, 130, 246, 0.5);
+
+  /* Nav rail */
+  --bg-nav-rail-hover: rgba(255, 255, 255, 0.05);
+  --bg-nav-rail-active: rgba(255, 255, 255, 0.1);
+  --text-nav-rail: #9CA3AF;
+  --text-nav-rail-active: #F9FAFB;
+
+  /* Phase header */
+  --bg-phase-header: #1F2937;
+  --bg-phase-header-border: #111827;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg-app);
+  --color-foreground: var(--text-primary);
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+html, body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--font-size-cell);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   SCROLLBAR (subtle)
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ============================================
+   FOCUS STYLES
+   ============================================ */
+
+*:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 1px;
+}
+
+/* ============================================
+   SELECTION
+   ============================================ */
+
+::selection {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+/* ============================================
+   MATERIAL SYMBOLS OUTLINED
+   Loaded via <link> in layout.tsx head
+   ============================================ */
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 20;
+}
+
+.material-symbols-outlined.icon-sm {
+  font-size: 18px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 18;
+}
+
+.material-symbols-outlined.icon-xs {
+  font-size: 16px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 16;
+}
+
+.material-symbols-outlined.icon-lg {
+  font-size: 32px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 32;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shine {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes item-highlight {
+  0% {
+    background-color: rgba(59, 130, 246, 0.15);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out forwards;
+}
+
+.animate-slide-out-right {
+  animation: slide-out-right 0.2s ease-in forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out forwards;
+}
+
+.animate-shine {
+  position: relative;
+  overflow: hidden;
+  animation: item-highlight 1.2s ease-out forwards;
+}
+
+.animate-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shine 1.2s ease-out forwards;
+  pointer-events: none;
 }

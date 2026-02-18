@@ -1,0 +1,561 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "../../../lib/db";
+
+// ============================================
+// TYPES
+// ============================================
+
+export type PainPoint = {
+  text: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+};
+
+export type Opportunity = {
+  text: string;
+  impact: "LOW" | "MEDIUM" | "HIGH";
+};
+
+export async function createJourneyMap(projectId: string, formData: FormData) {
+  const name = formData.get("name") as string;
+  const persona = formData.get("persona") as string | null;
+
+  if (!name || name.trim() === "") {
+    throw new Error("Journey map name is required");
+  }
+
+  // Get max sortOrder for existing maps
+  const maxSort = await prisma.journeyMap.aggregate({
+    where: { projectId },
+    _max: { sortOrder: true },
+  });
+
+  const nextSortOrder = (maxSort._max.sortOrder ?? -1) + 1;
+
+  const journeyMap = await prisma.journeyMap.create({
+    data: {
+      name: name.trim(),
+      persona: persona?.trim() || null,
+      sortOrder: nextSortOrder,
+      projectId,
+    },
+  });
+
+  revalidatePath(`/projects/${projectId}/journey-maps`);
+  return journeyMap;
+}
+
+// Update journey map persona reference
+export async function updateJourneyMapPersona(
+  journeyMapId: string,
+  personaId: string | null
+) {
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+
+  if (!journeyMap) return null;
+
+  const updated = await prisma.journeyMap.update({
+    where: { id: journeyMapId },
+    data: { personaId },
+  });
+
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
+  return updated;
+}
+
+// Create blank phase at end WITH a default action
+export async function createBlankPhase(journeyMapId: string) {
+  const maxOrder = await prisma.journeyPhase.aggregate({
+    where: { journeyMapId },
+    _max: { order: true },
+  });
+
+  const nextOrder = (maxOrder._max.order ?? -1) + 1;
+
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+
+  // Create phase with a default action
+  const phase = await prisma.journeyPhase.create({
+    data: {
+      title: "New Phase",
+      order: nextOrder,
+      journeyMapId,
+      actions: {
+        create: {
+          title: "New Action",
+          order: 0,
+        },
+      },
+    },
+    include: {
+      actions: true,
+    },
+  });
+
+  revalidatePath(`/projects/${journeyMap?.projectId}/journey-maps/${journeyMapId}`);
+  
+  // Return the new action ID for focusing
+  return { phaseId: phase.id, actionId: phase.actions[0]?.id };
+}
+
+// Insert blank phase at specific position WITH a default action
+export async function insertBlankPhaseAt(
+  journeyMapId: string,
+  referencePhaseId: string,
+  position: "before" | "after"
+) {
+  const referencePhase = await prisma.journeyPhase.findUnique({
+    where: { id: referencePhaseId },
+    select: { order: true },
+  });
+
+  if (!referencePhase) {
+    throw new Error("Reference phase not found");
+  }
+
+  const targetOrder =
+    position === "before" ? referencePhase.order : referencePhase.order + 1;
+
+  await prisma.journeyPhase.updateMany({
+    where: {
+      journeyMapId,
+      order: { gte: targetOrder },
+    },
+    data: {
+      order: { increment: 1 },
+    },
+  });
+
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+
+  // Create phase with a default action
+  const phase = await prisma.journeyPhase.create({
+    data: {
+      title: "New Phase",
+      order: targetOrder,
+      journeyMapId,
+      actions: {
+        create: {
+          title: "New Action",
+          order: 0,
+        },
+      },
+    },
+    include: {
+      actions: true,
+    },
+  });
+
+  revalidatePath(`/projects/${journeyMap?.projectId}/journey-maps/${journeyMapId}`);
+  
+  // Return the new action ID for focusing
+  return { phaseId: phase.id, actionId: phase.actions[0]?.id };
+}
+
+// Update phase fields
+export async function updatePhase(
+  phaseId: string,
+  field: "title" | "timeframe",
+  value: string
+) {
+  const phase = await prisma.journeyPhase.findUnique({
+    where: { id: phaseId },
+    include: { journeyMap: { select: { projectId: true, id: true } } },
+  });
+
+  if (!phase) return;
+
+  await prisma.journeyPhase.update({
+    where: { id: phaseId },
+    data: {
+      [field]: value.trim() || (field === "title" ? "Untitled" : null),
+    },
+  });
+
+  revalidatePath(
+    `/projects/${phase.journeyMap.projectId}/journey-maps/${phase.journeyMap.id}`
+  );
+}
+
+// Create blank action in a phase (at end)
+export async function createBlankAction(phaseId: string) {
+  const phase = await prisma.journeyPhase.findUnique({
+    where: { id: phaseId },
+    include: {
+      journeyMap: { select: { projectId: true, id: true } },
+      actions: { select: { order: true }, orderBy: { order: "desc" }, take: 1 },
+    },
+  });
+
+  if (!phase) return null;
+
+  const nextOrder = (phase.actions[0]?.order ?? -1) + 1;
+
+  const action = await prisma.journeyAction.create({
+    data: {
+      title: "New Action",
+      order: nextOrder,
+      phaseId,
+    },
+  });
+
+  revalidatePath(
+    `/projects/${phase.journeyMap.projectId}/journey-maps/${phase.journeyMap.id}`
+  );
+
+  return { actionId: action.id };
+}
+
+// Insert blank action at specific position relative to another action
+export async function insertBlankActionAt(
+  phaseId: string,
+  referenceActionId: string | null,
+  position: "before" | "after"
+) {
+  const phase = await prisma.journeyPhase.findUnique({
+    where: { id: phaseId },
+    include: {
+      journeyMap: { select: { projectId: true, id: true } },
+      actions: { orderBy: { order: "asc" }, select: { id: true, order: true } },
+    },
+  });
+
+  if (!phase) return null;
+
+  let targetOrder = 0;
+
+  if (referenceActionId) {
+    const refAction = phase.actions.find((a) => a.id === referenceActionId);
+    if (refAction) {
+      targetOrder = position === "before" ? refAction.order : refAction.order + 1;
+    } else {
+      // Reference not found, append to end
+      targetOrder = (phase.actions[phase.actions.length - 1]?.order ?? -1) + 1;
+    }
+  } else {
+    // No reference, append to end
+    targetOrder = (phase.actions[phase.actions.length - 1]?.order ?? -1) + 1;
+  }
+
+  // Shift existing actions with order >= targetOrder
+  await prisma.journeyAction.updateMany({
+    where: {
+      phaseId,
+      order: { gte: targetOrder },
+    },
+    data: {
+      order: { increment: 1 },
+    },
+  });
+
+  // Create the new action at the target order
+  const newAction = await prisma.journeyAction.create({
+    data: {
+      title: "New Action",
+      order: targetOrder,
+      phaseId,
+    },
+  });
+
+  revalidatePath(
+    `/projects/${phase.journeyMap.projectId}/journey-maps/${phase.journeyMap.id}`
+  );
+
+  return { actionId: newAction.id };
+}
+
+// Delete a journey action
+export async function deleteAction(actionId: string) {
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: { journeyMap: { select: { projectId: true, id: true } } },
+      },
+    },
+  });
+
+  if (!action) return;
+
+  await prisma.journeyAction.delete({
+    where: { id: actionId },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+}
+
+// Duplicate a journey action (with quotes)
+export async function duplicateAction(actionId: string) {
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: { journeyMap: { select: { projectId: true, id: true } } },
+      },
+      quotes: true,
+    },
+  });
+
+  if (!action) return null;
+
+  const maxOrder = await prisma.journeyAction.aggregate({
+    where: { phaseId: action.phaseId },
+    _max: { order: true },
+  });
+  const nextOrder = (maxOrder._max.order ?? -1) + 1;
+
+  const newAction = await prisma.journeyAction.create({
+    data: {
+      title: `${action.title} (copy)`,
+      order: nextOrder,
+      description: action.description,
+      thought: action.thought,
+      channel: action.channel,
+      touchpoint: action.touchpoint,
+      emotion: action.emotion,
+      painPoints: action.painPoints,
+      opportunities: action.opportunities,
+      thumbnailUrl: action.thumbnailUrl,
+      phaseId: action.phaseId,
+      quotes: action.quotes.length
+        ? {
+            create: action.quotes.map((q) => ({
+              quoteText: q.quoteText,
+              source: q.source,
+            })),
+          }
+        : undefined,
+    },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+  return { actionId: newAction.id };
+}
+
+// Update a single action field
+export async function updateActionField(
+  actionId: string,
+  field: string,
+  value: string | number | null
+) {
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: { journeyMap: { select: { projectId: true, id: true } } },
+      },
+    },
+  });
+
+  if (!action) return;
+
+  let processedValue = value;
+
+  // Handle emotion as integer
+  if (field === "emotion") {
+    if (value === "" || value === null) {
+      processedValue = null;
+    } else {
+      const num = typeof value === "string" ? parseInt(value, 10) : value;
+      processedValue = num >= 1 && num <= 5 ? num : null;
+    }
+  }
+  // Handle thumbnailUrl - allow storing data URLs as-is
+  else if (field === "thumbnailUrl") {
+    processedValue = value || null;
+  }
+  // Handle text fields
+  else if (typeof value === "string") {
+    processedValue = value.trim() || null;
+    // Title should never be null
+    if (field === "title" && !processedValue) {
+      processedValue = "Untitled";
+    }
+  }
+
+  await prisma.journeyAction.update({
+    where: { id: actionId },
+    data: {
+      [field]: processedValue,
+    },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+}
+
+export async function createQuote(actionId: string, formData: FormData) {
+  const quoteText = formData.get("quoteText") as string;
+  const source = formData.get("source") as string | null;
+
+  if (!quoteText || quoteText.trim() === "") {
+    throw new Error("Quote text is required");
+  }
+
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: {
+          journeyMap: { select: { projectId: true, id: true } },
+        },
+      },
+    },
+  });
+
+  if (!action) {
+    throw new Error("Action not found");
+  }
+
+  await prisma.journeyQuote.create({
+    data: {
+      quoteText: quoteText.trim(),
+      source: source?.trim() || null,
+      actionId,
+    },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+}
+
+// ============================================
+// CUSTOM CHANNEL/TOUCHPOINT ACTIONS
+// ============================================
+
+export async function createCustomChannel(
+  journeyMapId: string,
+  label: string,
+  iconName: string = "label"
+) {
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+
+  if (!journeyMap) return null;
+
+  const channel = await prisma.customChannel.create({
+    data: {
+      label: label.trim(),
+      iconName,
+      journeyMapId,
+    },
+  });
+
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
+  return channel;
+}
+
+export async function createCustomTouchpoint(
+  journeyMapId: string,
+  label: string,
+  iconName: string = "label"
+) {
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+
+  if (!journeyMap) return null;
+
+  const touchpoint = await prisma.customTouchpoint.create({
+    data: {
+      label: label.trim(),
+      iconName,
+      journeyMapId,
+    },
+  });
+
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
+  return touchpoint;
+}
+
+export async function getCustomOptions(journeyMapId: string) {
+  const [channels, touchpoints] = await Promise.all([
+    prisma.customChannel.findMany({
+      where: { journeyMapId },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.customTouchpoint.findMany({
+      where: { journeyMapId },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  return { channels, touchpoints };
+}
+
+// ============================================
+// PAIN POINTS (with severity)
+// ============================================
+
+export async function updateActionPainPoints(
+  actionId: string,
+  painPoints: PainPoint[]
+) {
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: { journeyMap: { select: { projectId: true, id: true } } },
+      },
+    },
+  });
+
+  if (!action) return;
+
+  await prisma.journeyAction.update({
+    where: { id: actionId },
+    data: {
+      painPoints: JSON.stringify(painPoints),
+    },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+}
+
+export async function updateActionOpportunities(
+  actionId: string,
+  opportunities: Opportunity[]
+) {
+  const action = await prisma.journeyAction.findUnique({
+    where: { id: actionId },
+    include: {
+      phase: {
+        include: { journeyMap: { select: { projectId: true, id: true } } },
+      },
+    },
+  });
+
+  if (!action) return;
+
+  await prisma.journeyAction.update({
+    where: { id: actionId },
+    data: {
+      opportunities: JSON.stringify(opportunities),
+    },
+  });
+
+  revalidatePath(
+    `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
+  );
+}

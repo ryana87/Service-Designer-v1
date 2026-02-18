@@ -1,0 +1,341 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Project {
+  id                String             @id @default(cuid())
+  name              String
+  description       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  journeyMaps       JourneyMap[]
+  serviceBlueprints ServiceBlueprint[]
+  personas          Persona[]
+  shareLinks        ShareLink[]
+  versionSnapshots  VersionSnapshot[]
+}
+
+// ============================================
+// PERSONA (Project-level, reusable across Journey Maps)
+// ============================================
+
+model Persona {
+  id               String       @id @default(cuid())
+  name             String
+  shortDescription String?      // Short descriptor / tagline
+  role             String?      // Role / archetype
+  context          String?      // Context (multi-line)
+  goals            String?      // Goals (multi-line)
+  needs            String?      // Needs (multi-line)  
+  painPoints       String?      // Pain points (multi-line)
+  notes            String?      // Notes (multi-line)
+  avatarUrl        String?      // Headshot image URL or Data URL
+  projectId        String
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  journeyMaps      JourneyMap[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model JourneyMap {
+  id               String            @id @default(cuid())
+  name             String
+  persona          String?           // Legacy: plain text persona description
+  personaId        String?           // Reference to Persona entity
+  personaRef       Persona?          @relation(fields: [personaId], references: [id], onDelete: SetNull)
+  sortOrder        Int               @default(0)
+  projectId        String
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phases           JourneyPhase[]
+  customChannels   CustomChannel[]
+  customTouchpoints CustomTouchpoint[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model JourneyPhase {
+  id           String          @id @default(cuid())
+  order        Int
+  title        String
+  timeframe    String?
+  journeyMapId String
+  journeyMap   JourneyMap      @relation(fields: [journeyMapId], references: [id], onDelete: Cascade)
+  actions      JourneyAction[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model JourneyAction {
+  id            String          @id @default(cuid())
+  order         Int             @default(0)
+  title         String
+  description   String?
+  thought       String?
+  channel       String?
+  touchpoint    String?
+  emotion       Int?            // 1-5 scale
+  painPoints    String?         // Simple text for now
+  opportunities String?         // Simple text for now
+  thumbnailUrl  String?         // Data URL for local image storage
+  phaseId       String
+  phase         JourneyPhase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  quotes        JourneyQuote[]
+  comments      Comment[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model JourneyQuote {
+  id        String        @id @default(cuid())
+  quoteText String
+  source    String?
+  actionId  String
+  action    JourneyAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+}
+
+model CustomChannel {
+  id           String     @id @default(cuid())
+  label        String
+  iconName     String     @default("label")
+  journeyMapId String
+  journeyMap   JourneyMap @relation(fields: [journeyMapId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+}
+
+model CustomTouchpoint {
+  id           String     @id @default(cuid())
+  label        String
+  iconName     String     @default("label")
+  journeyMapId String
+  journeyMap   JourneyMap @relation(fields: [journeyMapId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+}
+
+// ============================================
+// SERVICE BLUEPRINT MODELS
+// ============================================
+
+model ServiceBlueprint {
+  id               String                  @id @default(cuid())
+  name             String
+  sortOrder        Int                     @default(0)
+  projectId        String
+  project          Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phases           BlueprintPhase[]
+  columns          BlueprintColumn[]
+  teams            BlueprintTeam[]
+  softwareServices SoftwareService[]
+  teamSections     TeamSection[]
+  decisionCards    BlueprintDecisionCard[]
+  connections      BlueprintConnection[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+}
+
+// Phase = grouped header band spanning 1..N columns
+model BlueprintPhase {
+  id          String            @id @default(cuid())
+  order       Int
+  title       String
+  timeframe   String?
+  blueprintId String
+  blueprint   ServiceBlueprint  @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  columns     BlueprintColumn[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+// Column = a step column within a phase
+model BlueprintColumn {
+  id            String                  @id @default(cuid())
+  order         Int
+  phaseId       String
+  phase         BlueprintPhase          @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  blueprintId   String
+  blueprint     ServiceBlueprint        @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  basicCards    BlueprintBasicCard[]
+  decisionCards BlueprintDecisionCard[]
+  teamSections  TeamSection[]
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+}
+
+// Team Section = header for grouping complex cards in Frontstage/Backstage lanes
+model TeamSection {
+  id          String                 @id @default(cuid())
+  order       Int                    @default(0)
+  laneType    String                 // FRONTSTAGE_ACTION or BACKSTAGE_ACTION
+  columnId    String
+  column      BlueprintColumn        @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  teamId      String
+  team        BlueprintTeam          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  blueprintId String
+  blueprint   ServiceBlueprint       @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  cards       BlueprintComplexCard[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+}
+
+// Basic Card - for Physical Evidence, Customer Action, Support Process lanes
+model BlueprintBasicCard {
+  id          String          @id @default(cuid())
+  order       Int             @default(0)
+  laneType    String          // PHYSICAL_EVIDENCE, CUSTOMER_ACTION, SUPPORT_PROCESS
+  title       String
+  description String?
+  painPoints  String?         // JSON array: [{ text: string, severity: "LOW"|"MEDIUM"|"HIGH" }]
+  isStart     Boolean         @default(false)  // Visual marker only
+  isEnd       Boolean         @default(false)  // Visual marker only
+  columnId    String
+  column      BlueprintColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+// Decision Card - for routing/conditional logic (no work performed)
+// Allowed in: CUSTOMER_ACTION, FRONTSTAGE_ACTION, BACKSTAGE_ACTION
+// NOT allowed in: PHYSICAL_EVIDENCE, SUPPORT_PROCESS
+model BlueprintDecisionCard {
+  id          String           @id @default(cuid())
+  order       Int              @default(0)
+  laneType    String           // CUSTOMER_ACTION, FRONTSTAGE_ACTION, BACKSTAGE_ACTION
+  title       String           // Short label, e.g. "Payment outcome"
+  question    String           // Decision logic as question, e.g. "Did the payment succeed?"
+  description String?          // Clarifying notes
+  isStart     Boolean          @default(false)  // Visual marker only
+  isEnd       Boolean          @default(false)  // Visual marker only
+  columnId    String
+  column      BlueprintColumn  @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  blueprintId String
+  blueprint   ServiceBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+// Complex Card - for Frontstage and Backstage lanes (belongs to TeamSection)
+model BlueprintComplexCard {
+  id              String       @id @default(cuid())
+  order           Int          @default(0)
+  title           String
+  description     String?
+  painPoints      String?      // JSON array: [{ text: string, severity: "LOW"|"MEDIUM"|"HIGH" }]
+  softwareIds     String?      // JSON array of SoftwareService IDs
+  isStart         Boolean      @default(false)  // Visual marker only
+  isEnd           Boolean      @default(false)  // Visual marker only
+  teamSectionId   String
+  teamSection     TeamSection  @relation(fields: [teamSectionId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model BlueprintTeam {
+  id           String           @id @default(cuid())
+  name         String
+  iconName     String           @default("group")
+  colorHex     String           @default("#6366f1")  // Bright colors for teams
+  blueprintId  String
+  blueprint    ServiceBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  teamSections TeamSection[]
+  createdAt    DateTime         @default(now())
+}
+
+// Renamed from BlueprintTag - represents Software/Services
+model SoftwareService {
+  id          String           @id @default(cuid())
+  label       String
+  colorHex    String           @default("#cbd5e1")  // Pastel colors for software/services
+  blueprintId String
+  blueprint   ServiceBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+}
+
+// Connection between cards (flow/dependency arrows)
+model BlueprintConnection {
+  id             String           @id @default(cuid())
+  blueprintId    String
+  blueprint      ServiceBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  // Source card (can be basic, complex, or decision)
+  sourceCardId   String
+  sourceCardType String           // "basic" | "complex" | "decision"
+  // Target card (can be basic, complex, or decision)
+  targetCardId   String
+  targetCardType String           // "basic" | "complex" | "decision"
+  
+  // Connector semantics (Phase 8)
+  connectorType  String           @default("standard") // "standard" | "dependency" | "feedback" | "wait"
+  label          String?          // Optional label text
+  arrowDirection String           @default("forward")  // "forward" | "backward" | "bidirectional" | "none"
+  strokeWeight   String           @default("normal")   // "thin" | "normal" | "thick"
+  strokePattern  String           @default("solid")    // "solid" | "dashed" | "dotted"
+  strokeColor    String           @default("grey")     // "grey" | "red" | "green"
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([sourceCardId, targetCardId])
+}
+
+// ============================================
+// VERSION SNAPSHOTS (Phase 3)
+// ============================================
+
+model VersionSnapshot {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String   // User-defined label, e.g. "Before redesign"
+  snapshotType   String   // "journeyMap" | "blueprint"
+  snapshotId     String   // ID of the journey map or blueprint
+  snapshotData   String   // JSON snapshot of the full content
+  createdAt      DateTime @default(now())
+}
+
+// ============================================
+// COMMENTS (Phase 3)
+// ============================================
+
+model Comment {
+  id              String         @id @default(cuid())
+  content         String
+  author          String?        // Optional: "User" or future user ID
+  actionId        String?        // Journey map action
+  action          JourneyAction? @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  targetType      String?        // "blueprint_basic" | "blueprint_complex" | "blueprint_decision"
+  targetId        String?        // Blueprint card ID when targetType is set
+  positionX       Float?         // 0-1, relative position for floating icon
+  positionY       Float?         // 0-1, relative position for floating icon
+  rowKey          String?        // Journey map row (e.g. "thumbnail", "painPoints") for positioning
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+// ============================================
+// SHARE LINKS
+// ============================================
+
+model ShareLink {
+  id               String   @id @default(cuid())
+  slug             String   @unique  // Short unique identifier for URL
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // What's being shared (one of these will be set)
+  journeyMapId     String?
+  blueprintId      String?
+  personaId        String?
+  
+  // Metadata
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime?  // Optional expiration
+  viewCount        Int      @default(0)
+  isActive         Boolean  @default(true)
+}
