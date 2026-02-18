@@ -1,0 +1,24 @@
+-- Reset: drop all tables (safe for fresh deploy, data loss)
+PRAGMA foreign_keys = OFF;
+DROP TABLE IF EXISTS "ShareLink";
+DROP TABLE IF EXISTS "Comment";
+DROP TABLE IF EXISTS "VersionSnapshot";
+DROP TABLE IF EXISTS "BlueprintComplexCard";
+DROP TABLE IF EXISTS "BlueprintDecisionCard";
+DROP TABLE IF EXISTS "BlueprintBasicCard";
+DROP TABLE IF EXISTS "TeamSection";
+DROP TABLE IF EXISTS "BlueprintColumn";
+DROP TABLE IF EXISTS "BlueprintPhase";
+DROP TABLE IF EXISTS "BlueprintTeam";
+DROP TABLE IF EXISTS "SoftwareService";
+DROP TABLE IF EXISTS "BlueprintConnection";
+DROP TABLE IF EXISTS "CustomTouchpoint";
+DROP TABLE IF EXISTS "CustomChannel";
+DROP TABLE IF EXISTS "JourneyQuote";
+DROP TABLE IF EXISTS "JourneyAction";
+DROP TABLE IF EXISTS "JourneyPhase";
+DROP TABLE IF EXISTS "JourneyMap";
+DROP TABLE IF EXISTS "Persona";
+DROP TABLE IF EXISTS "ServiceBlueprint";
+DROP TABLE IF EXISTS "Project";
+PRAGMA foreign_keys = ON;

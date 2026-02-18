@@ -1,28 +1,12 @@
-import path from "path";
 import { PrismaClient } from "../generated/prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-// Resolve file: URLs to absolute paths so they work regardless of cwd (Next.js, serverless, etc.)
-function resolveDbUrl(url: string): string {
-  if (url.startsWith("file:")) {
-    const p = url.slice(5); // strip "file:"
-    if (!path.isAbsolute(p)) {
-      const abs = path.join(process.cwd(), p);
-      return `file:${abs.replace(/\\/g, "/")}`;
-    }
-  }
-  return url;
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is required (Supabase connection string)");
 }
 
-const rawUrl = process.env.DATABASE_URL ?? "file:./dev.db";
-const isTurso = rawUrl.startsWith("libsql://");
-
-const adapter = isTurso
-  ? new PrismaLibSql({
-      url: rawUrl,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    })
-  : new PrismaLibSql({ url: resolveDbUrl(rawUrl) });
+const adapter = new PrismaPg({ connectionString });
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;

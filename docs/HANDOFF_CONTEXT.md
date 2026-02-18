@@ -233,7 +233,7 @@ The app can be deployed online with password protection so stakeholders can acce
 
 ### Recommended: Vercel + Turso
 
-1. **Turso** (libsql cloud): `turso db create sd4-demo --region nrt`, then `turso db tokens create sd4-demo`
+1. **Turso** (libsql cloud): `turso db create sd4-demo --location nrt`, then `turso db tokens create sd4-demo`
 2. **Vercel**: Import from GitHub, add env vars: `DATABASE_URL` (libsql://...), `TURSO_AUTH_TOKEN`, `DEMO_ACCESS_PASSWORD`
 3. **Schema sync**: `npx prisma db push` against Turso (or apply migration SQL via `turso db shell`)
 4. **Seed demo**: After deploy, visit the app, log in with the password, click "Try Demo" to seed the demo project

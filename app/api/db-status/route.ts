@@ -5,12 +5,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const dbUrl = process.env.DATABASE_URL ?? "(not set)";
-  const isTurso = typeof dbUrl === "string" && dbUrl.startsWith("libsql://");
+  const isSupabase = typeof dbUrl === "string" && dbUrl.includes("supabase");
   try {
     await prisma.project.count();
     return NextResponse.json({
       ok: true,
-      database: isTurso ? "Turso" : "SQLite file",
+      database: isSupabase ? "Supabase" : "PostgreSQL",
       urlHint: typeof dbUrl === "string" ? dbUrl.slice(0, 60) + (dbUrl.length > 60 ? "..." : "") : dbUrl,
       tablesExist: true,
       message: "Database connected and Project table exists.",
@@ -20,13 +20,11 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
-        database: isTurso ? "Turso" : "SQLite file",
+        database: isSupabase ? "Supabase" : "PostgreSQL",
         urlHint: typeof dbUrl === "string" ? dbUrl.slice(0, 60) + (dbUrl.length > 60 ? "..." : "") : dbUrl,
         tablesExist: false,
         error: msg,
-        hint: isTurso
-          ? "Run: ./scripts/turso-migrate.sh sd4-demo (then verify DATABASE_URL in Vercel matches your Turso URL)"
-          : "Run: npx prisma db push",
+        hint: "Run: npx prisma migrate deploy (ensure DATABASE_URL and DIRECT_URL are set)",
       },
       { status: 500 }
     );

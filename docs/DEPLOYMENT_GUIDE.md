@@ -28,16 +28,23 @@ This opens a browser. Create an account (or log in if you already have one).
 
 ### Step 1.3: Create the Database
 
+**For Australian users** (Vercel is already set to Sydney via `vercel.json`):
+
 ```bash
-turso db create sd4-demo --region nrt
+turso db create sd4-demo --location nrt
 ```
 
-- `sd4-demo` is the database name (you can change it).
-- `nrt` is Tokyo. Use a region near you:
-  - `iad` — US East (Virginia)
-  - `lhr` — London
-  - `nrt` — Tokyo
-  - Full list: https://turso.tech/docs/reference/database-regions
+- `nrt` = Tokyo — Turso’s closest region to Australia (no Sydney yet). ~100–150ms from Sydney.
+- Run `turso db locations --show-latencies` to see current regions and pick the best for your location.
+
+**For US/Europe users:**
+
+```bash
+turso db create sd4-demo --location iad   # US East
+turso db create sd4-demo --location lhr  # London
+```
+
+- Full list: https://turso.tech/docs/reference/database-regions
 
 ### Step 1.4: Get Your Database URL
 
@@ -173,7 +180,7 @@ When you make changes and want to deploy a new version:
 
 - [ ] Install Turso CLI (`brew install tursodatabase/tap/turso`)
 - [ ] Create Turso account (`turso auth signup`)
-- [ ] Create database (`turso db create sd4-demo --region nrt`)
+- [ ] Create database (`turso db create sd4-demo --location nrt`)
 - [ ] Get database URL (`turso db show sd4-demo`)
 - [ ] Create auth token (`turso db tokens create sd4-demo`)
 - [ ] Push code to GitHub
@@ -182,6 +189,77 @@ When you make changes and want to deploy a new version:
 - [ ] Deploy
 - [ ] Run `prisma db push` with Turso URL and token
 - [ ] Visit your Vercel URL, enter password, click Try Demo
+
+---
+
+## Australian Deployment (Sydney)
+
+For users primarily in Australia:
+
+1. **Vercel** — Already configured in `vercel.json` with `"regions": ["syd1"]` (Sydney). Requires Vercel Pro for region selection; on Hobby, functions may still run in a default region.
+2. **Turso** — No Sydney region yet. Use **Tokyo (`nrt`)** — the closest option (~100–150ms from Sydney):
+   ```bash
+   turso db create sd4-demo --location nrt
+   ```
+3. Run `./scripts/turso-migrate.sh sd4-demo` and set `DATABASE_URL` + `TURSO_AUTH_TOKEN` in Vercel.
+
+---
+
+## Fixing Slow Performance (3–4 second delays)
+
+If simple actions take 3–4 seconds, your Turso database is likely in a different region than Vercel (e.g. Mumbai vs US East). **Move the database to US East (`iad`):**
+
+1. **Create a new database in US East:**
+   ```bash
+   turso db create sd4-demo-us --location iad
+   ```
+
+2. **Get the new URL and token:**
+   ```bash
+   turso db show sd4-demo-us
+   turso db tokens create sd4-demo-us
+   ```
+
+3. **Apply the schema:**
+   ```bash
+   ./scripts/turso-migrate.sh sd4-demo-us
+   ```
+
+4. **Update Vercel env vars** (Project → Settings → Environment Variables):
+   - `DATABASE_URL` = new URL (e.g. `libsql://sd4-demo-us-ryana87.aws-us-east-1.turso.io`)
+   - `TURSO_AUTH_TOKEN` = new token
+
+5. **Redeploy** (Deployments → ⋮ → Redeploy).
+
+6. **Optional:** Delete the old database: `turso db destroy sd4-demo`
+
+---
+
+## Australian Deployment (Sydney for AU users)
+
+To run both the app and database in Australia for lowest latency:
+
+### 1. Vercel — Sydney region
+
+A `vercel.json` file is included that sets `"regions": ["syd1"]` so functions run in Sydney. **Note:** Sydney region may require a Vercel Pro plan.
+
+### 2. Turso — Closest AU region
+
+Run `turso db locations` (or `turso db locations -l` to see latencies from your machine) to list available regions. Look for:
+
+- **`aws-ap-southeast-2`** — Sydney (if available)
+- **`aws-ap-southeast-1`** — Singapore (closest alternative if Sydney unavailable)
+
+Create the database:
+
+```bash
+# Try Sydney first; if not available, use Singapore
+turso db create sd4-demo --location aws-ap-southeast-2
+# or
+turso db create sd4-demo --location aws-ap-southeast-1
+```
+
+Then run `./scripts/turso-migrate.sh sd4-demo` and set `DATABASE_URL` + `TURSO_AUTH_TOKEN` in Vercel.
 
 ---
 
