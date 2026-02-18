@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "npx playwright install chromium || true",
+    "postinstall": "node scripts/postinstall.js || true",
     "install:browsers": "npx playwright install chromium"
   },
   "dependencies": {
