@@ -90,7 +90,6 @@ export default async function BlueprintPage({ params }: PageProps) {
     >
       <BlueprintCacheProvider initialData={cacheInitialData} blueprintId={blueprintId}>
         <BlueprintEditor
-          blueprint={blueprint}
           projectId={projectId}
           journeyMaps={blueprint.project.journeyMaps}
           blueprints={blueprint.project.serviceBlueprints}

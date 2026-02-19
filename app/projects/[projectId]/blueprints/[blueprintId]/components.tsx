@@ -126,7 +126,7 @@ type Blueprint = {
 };
 
 type BlueprintEditorProps = {
-  blueprint: Blueprint;
+  blueprint?: Blueprint;
   projectId: string;
   journeyMaps: Array<{ id: string; name: string }>;
   blueprints: Array<{ id: string; name: string }>;
@@ -361,9 +361,10 @@ function BlueprintSelectModeCheckbox({
 // MAIN EDITOR COMPONENT
 // ============================================
 
-export function BlueprintEditor({ blueprint: blueprintProp, projectId, journeyMaps, blueprints, personas }: BlueprintEditorProps) {
+export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }: BlueprintEditorProps) {
   const cache = useBlueprintCache();
-  const blueprint = cache.data ?? blueprintProp;
+  const blueprint = cache.data;
+  if (!blueprint) return null; // Provider is always seeded with initialData
   const columnWidth = 220; // Extra width for connection anchor spacing
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
