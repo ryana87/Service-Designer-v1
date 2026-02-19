@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "../../lib/db";
+import { requireProjectOwner } from "../actions";
 import type { JourneyMapDraftSpec } from "../../onboarding/types";
 
 // ============================================
@@ -13,6 +14,7 @@ export async function updateProject(
   field: "name" | "description",
   value: string
 ) {
+  await requireProjectOwner(projectId);
   await prisma.project.update({
     where: { id: projectId },
     data: {
@@ -28,7 +30,7 @@ export async function updateProject(
 // ============================================
 
 export async function createJourneyMapInProject(projectId: string) {
-  // Get max sortOrder for existing maps
+  await requireProjectOwner(projectId);
   const maxSort = await prisma.journeyMap.aggregate({
     where: { projectId },
     _max: { sortOrder: true },
@@ -49,7 +51,7 @@ export async function createJourneyMapInProject(projectId: string) {
 }
 
 export async function createJourneyMapFromSpec(projectId: string, spec: JourneyMapDraftSpec) {
-  // Get max sortOrder for existing maps
+  await requireProjectOwner(projectId);
   const maxSort = await prisma.journeyMap.aggregate({
     where: { projectId },
     _max: { sortOrder: true },
@@ -104,8 +106,8 @@ export async function renameJourneyMap(journeyMapId: string, newName: string) {
     where: { id: journeyMapId },
     select: { projectId: true },
   });
-
   if (!journeyMap) return;
+  await requireProjectOwner(journeyMap.projectId);
 
   await prisma.journeyMap.update({
     where: { id: journeyMapId },
@@ -120,8 +122,8 @@ export async function deleteJourneyMap(journeyMapId: string) {
     where: { id: journeyMapId },
     select: { projectId: true },
   });
-
   if (!journeyMap) return { projectId: null };
+  await requireProjectOwner(journeyMap.projectId);
 
   await prisma.journeyMap.delete({
     where: { id: journeyMapId },
@@ -150,8 +152,8 @@ export async function duplicateJourneyMap(journeyMapId: string) {
   });
 
   if (!original) return null;
+  await requireProjectOwner(original.projectId);
 
-  // Get max sortOrder for the project
   const maxSort = await prisma.journeyMap.aggregate({
     where: { projectId: original.projectId },
     _max: { sortOrder: true },
@@ -223,8 +225,8 @@ export async function moveJourneyMapUp(journeyMapId: string) {
   });
 
   if (!journeyMap) return;
+  await requireProjectOwner(journeyMap.projectId);
 
-  // Find the map above this one
   const mapAbove = await prisma.journeyMap.findFirst({
     where: {
       projectId: journeyMap.projectId,
@@ -255,10 +257,9 @@ export async function moveJourneyMapDown(journeyMapId: string) {
     where: { id: journeyMapId },
     select: { projectId: true, sortOrder: true },
   });
-
   if (!journeyMap) return;
+  await requireProjectOwner(journeyMap.projectId);
 
-  // Find the map below this one
   const mapBelow = await prisma.journeyMap.findFirst({
     where: {
       projectId: journeyMap.projectId,
@@ -307,10 +308,10 @@ export async function searchProjectContent(
   nameMatches: SearchResult[];
   contentMatches: SearchResult[];
 }> {
+  await requireProjectOwner(projectId);
   if (!query.trim()) {
     return { nameMatches: [], contentMatches: [] };
   }
-
   const lowerQuery = query.trim().toLowerCase();
   const nameMatches: SearchResult[] = [];
   const contentMatches: SearchResult[] = [];
@@ -686,6 +687,7 @@ export async function createPersona(
     avatarUrl?: string | null;
   }
 ) {
+  await requireProjectOwner(projectId);
   const persona = await prisma.persona.create({
     data: {
       name: data.name,
@@ -719,12 +721,17 @@ export async function updatePersona(
     avatarUrl?: string | null;
   }
 ) {
+  const existing = await prisma.persona.findUnique({
+    where: { id: personaId },
+    select: { projectId: true },
+  });
+  if (!existing) return null;
+  await requireProjectOwner(existing.projectId);
   const persona = await prisma.persona.update({
     where: { id: personaId },
     data,
     include: { project: { select: { id: true } } },
   });
-
   revalidatePath(`/projects/${persona.project.id}`);
   return persona;
 }
@@ -734,8 +741,8 @@ export async function deletePersona(personaId: string) {
     where: { id: personaId },
     select: { projectId: true },
   });
-
   if (!persona) return;
+  await requireProjectOwner(persona.projectId);
 
   await prisma.persona.delete({
     where: { id: personaId },

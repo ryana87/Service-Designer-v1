@@ -13,6 +13,7 @@ import { ResearchIntakeModal } from "../../onboarding/ResearchIntakeModal";
 import { GuidedPersonaModal } from "../../onboarding/GuidedPersonaModal";
 import { updateProject, createJourneyMapInProject, createJourneyMapFromSpec, renameJourneyMap, deleteJourneyMap, duplicateJourneyMap, createPersona, updatePersona, deletePersona } from "./actions";
 import { createBlueprint, createBlueprintFromSpec, renameBlueprint, deleteBlueprint, duplicateBlueprint } from "./blueprints/actions";
+import { useProjectCache } from "./ProjectCacheContext";
 import { useDemoOptional } from "../../demo/DemoContext";
 import { DEMO_PROJECT_ID } from "../../demo/constants";
 import { DEMO_ASSETS } from "../../demo/assets";
@@ -56,26 +57,12 @@ type SortField = "updatedAt" | "createdAt" | "name";
 
 type ProjectOverviewContentProps = {
   projectId: string;
-  projectName: string;
-  projectDescription: string | null;
-  journeyMaps: JourneyMapItem[];
-  blueprints: BlueprintItem[];
-  personas: PersonaItem[];
-  createdAt: string;
-  updatedAt: string;
 };
 
-export function ProjectOverviewContent({
-  projectId,
-  projectName,
-  projectDescription,
-  journeyMaps,
-  blueprints,
-  personas,
-  createdAt,
-  updatedAt,
-}: ProjectOverviewContentProps) {
+export function ProjectOverviewContent({ projectId }: ProjectOverviewContentProps) {
   const router = useRouter();
+  const cache = useProjectCache();
+  const { name: projectName, description: projectDescription, journeyMaps, blueprints, personas, createdAt, updatedAt } = cache.data;
   const demo = useDemoOptional();
   const isDemo = (demo?.isDemo ?? false) || projectId === DEMO_PROJECT_ID;
   const [name, setName] = useState(projectName);
@@ -84,6 +71,11 @@ export function ProjectOverviewContent({
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const descriptionInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setName(projectName);
+    setDescription(projectDescription || "");
+  }, [projectName, projectDescription]);
 
   // Search and sort state
   const [searchQuery, setSearchQuery] = useState("");
@@ -115,7 +107,7 @@ export function ProjectOverviewContent({
     setIsEditingName(false);
     if (name.trim() !== projectName) {
       await updateProject(projectId, "name", name.trim());
-      router.refresh();
+      cache.updateProjectName(name.trim());
     }
   };
 
@@ -123,7 +115,7 @@ export function ProjectOverviewContent({
     setIsEditingDescription(false);
     if (description.trim() !== (projectDescription || "")) {
       await updateProject(projectId, "description", description.trim());
-      router.refresh();
+      cache.updateProjectDescription(description.trim());
     }
   };
 
@@ -146,6 +138,15 @@ export function ProjectOverviewContent({
   const createBlankJourneyMap = async () => {
     const newMap = await createJourneyMapInProject(projectId);
     if (!newMap) return;
+    cache.addJourneyMap({
+      id: newMap.id,
+      name: newMap.name,
+      personaName: null,
+      createdAt: newMap.createdAt.toISOString(),
+      updatedAt: newMap.updatedAt.toISOString(),
+      phaseCount: 0,
+      actionCount: 0,
+    });
     sessionStorage.setItem("focusMapRename", newMap.id);
     router.push(`/projects/${projectId}/journey-maps/${newMap.id}`);
   };
@@ -153,6 +154,15 @@ export function ProjectOverviewContent({
   const createBlankBlueprint = async () => {
     const newBp = await createBlueprint(projectId);
     if (!newBp) return;
+    cache.addBlueprint({
+      id: newBp.id,
+      name: newBp.name,
+      createdAt: newBp.createdAt.toISOString(),
+      updatedAt: newBp.updatedAt.toISOString(),
+      phaseCount: 1,
+      columnCount: 1,
+      connectionCount: 0,
+    });
     sessionStorage.setItem("focusBlueprintRename", newBp.id);
     router.push(`/projects/${projectId}/blueprints/${newBp.id}`);
   };
@@ -163,6 +173,15 @@ export function ProjectOverviewContent({
       if (!template) return;
       const newMap = await createJourneyMapFromSpec(projectId, template.draft);
       if (!newMap) return;
+      cache.addJourneyMap({
+        id: newMap.id,
+        name: newMap.name,
+        personaName: null,
+        createdAt: newMap.createdAt.toISOString(),
+        updatedAt: newMap.updatedAt.toISOString(),
+        phaseCount: template.draft.phases?.length ?? 0,
+        actionCount: 0,
+      });
       router.push(`/projects/${projectId}/journey-maps/${newMap.id}`);
       return;
     }
@@ -171,6 +190,15 @@ export function ProjectOverviewContent({
     if (!template) return;
     const newBp = await createBlueprintFromSpec(projectId, template.draft);
     if (!newBp) return;
+    cache.addBlueprint({
+      id: newBp.id,
+      name: newBp.name,
+      createdAt: newBp.createdAt.toISOString(),
+      updatedAt: newBp.updatedAt.toISOString(),
+      phaseCount: template.draft.phases?.length ?? 0,
+      columnCount: 0,
+      connectionCount: 0,
+    });
     router.push(`/projects/${projectId}/blueprints/${newBp.id}`);
   };
 
@@ -631,6 +659,7 @@ function JourneyMapCard({
   formatDate: (date: string) => string;
 }) {
   const router = useRouter();
+  const cache = useProjectCache();
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [isRenaming, setIsRenaming] = useState(false);
@@ -668,7 +697,7 @@ function JourneyMapCard({
     setIsRenaming(false);
     if (newName.trim() && newName.trim() !== item.name) {
       await renameJourneyMap(item.id, newName.trim());
-      router.refresh();
+      cache.updateJourneyMapName(item.id, newName.trim());
     } else {
       setNewName(item.name);
     }
@@ -678,6 +707,15 @@ function JourneyMapCard({
     setShowMenu(false);
     const duplicate = await duplicateJourneyMap(item.id);
     if (duplicate) {
+      cache.addJourneyMapFromDuplicate({
+        id: duplicate.id,
+        name: duplicate.name,
+        personaName: item.personaName,
+        createdAt: duplicate.createdAt.toISOString(),
+        updatedAt: duplicate.updatedAt.toISOString(),
+        phaseCount: 0,
+        actionCount: 0,
+      });
       router.push(`/projects/${projectId}/journey-maps/${duplicate.id}`);
     }
   };
@@ -686,7 +724,7 @@ function JourneyMapCard({
     setShowMenu(false);
     if (confirm(`Delete "${item.name}"? This cannot be undone.`)) {
       await deleteJourneyMap(item.id);
-      router.refresh();
+      cache.removeJourneyMap(item.id);
     }
   };
 
@@ -793,6 +831,7 @@ function BlueprintCard({
   formatDate: (date: string) => string;
 }) {
   const router = useRouter();
+  const cache = useProjectCache();
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [isRenaming, setIsRenaming] = useState(false);
@@ -830,7 +869,7 @@ function BlueprintCard({
     setIsRenaming(false);
     if (newName.trim() && newName.trim() !== item.name) {
       await renameBlueprint(item.id, newName.trim());
-      router.refresh();
+      cache.updateBlueprintName(item.id, newName.trim());
     } else {
       setNewName(item.name);
     }
@@ -840,6 +879,15 @@ function BlueprintCard({
     setShowMenu(false);
     const duplicate = await duplicateBlueprint(item.id);
     if (duplicate) {
+      cache.addBlueprintFromDuplicate({
+        id: duplicate.id,
+        name: duplicate.name,
+        createdAt: duplicate.createdAt.toISOString(),
+        updatedAt: duplicate.updatedAt.toISOString(),
+        phaseCount: 0,
+        columnCount: 0,
+        connectionCount: 0,
+      });
       router.push(`/projects/${projectId}/blueprints/${duplicate.id}`);
     }
   };
@@ -848,7 +896,7 @@ function BlueprintCard({
     setShowMenu(false);
     if (confirm(`Delete "${item.name}"? This cannot be undone.`)) {
       await deleteBlueprint(item.id);
-      router.refresh();
+      cache.removeBlueprint(item.id);
     }
   };
 
@@ -963,10 +1011,20 @@ function PersonasSection({
     setShowCreateModal(true);
   };
 
+  const cache = useProjectCache();
+
   const handleDelete = async (persona: PersonaItem) => {
     if (confirm(`Delete persona "${persona.name}"? Journey maps using this persona will no longer have it selected.`)) {
       await deletePersona(persona.id);
-      router.refresh();
+      cache.removePersona(persona.id);
+    }
+  };
+
+  const handlePersonaSave = (saved: PersonaItem | null) => {
+    setShowCreateModal(false);
+    if (saved) {
+      if (editingPersona) cache.updatePersona(saved.id, saved);
+      else cache.addPersona(saved);
     }
   };
 
@@ -1038,10 +1096,7 @@ function PersonasSection({
           persona={editingPersona}
           isDemo={isDemo}
           onClose={() => setShowCreateModal(false)}
-          onSave={() => {
-            setShowCreateModal(false);
-            router.refresh();
-          }}
+          onSave={handlePersonaSave}
         />
       )}
 
@@ -1050,7 +1105,9 @@ function PersonasSection({
           projectId={projectId}
           isDemo={isDemo}
           onClose={() => setShowGuidedPersona(false)}
-          onCreated={() => router.refresh()}
+          onCreated={(persona) => {
+            if (persona) cache.addPersona(persona as PersonaItem);
+          }}
         />
       )}
     </div>
@@ -1168,7 +1225,7 @@ function PersonaEditModal({
   persona: PersonaItem | null;
   isDemo: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (saved: PersonaItem | null) => void;
 }) {
   // In demo mode when creating: start blank; populate on focus
   const isDemoCreate = isDemo && !persona;
@@ -1227,9 +1284,9 @@ function PersonaEditModal({
     setIsSaving(true);
     
     try {
+      let result: PersonaItem | null = null;
       if (persona) {
-        // Update existing persona
-        await updatePersona(persona.id, {
+        const updated = await updatePersona(persona.id, {
           name: name.trim(),
           shortDescription: shortDescription.trim() || null,
           role: role.trim() || null,
@@ -1240,9 +1297,9 @@ function PersonaEditModal({
           notes: notes.trim() || null,
           avatarUrl: avatarUrl || null,
         });
+        result = updated ? { id: updated.id, name: updated.name, shortDescription: updated.shortDescription, role: updated.role, context: updated.context, goals: updated.goals, needs: updated.needs, painPoints: updated.painPoints, notes: updated.notes, avatarUrl: updated.avatarUrl } : null;
       } else {
-        // Create new persona
-        await createPersona(projectId, {
+        const created = await createPersona(projectId, {
           name: name.trim(),
           shortDescription: shortDescription.trim() || null,
           role: role.trim() || null,
@@ -1253,10 +1310,12 @@ function PersonaEditModal({
           notes: notes.trim() || null,
           avatarUrl: avatarUrl || null,
         });
+        result = created ? { id: created.id, name: created.name, shortDescription: created.shortDescription, role: created.role, context: created.context, goals: created.goals, needs: created.needs, painPoints: created.painPoints, notes: created.notes, avatarUrl: created.avatarUrl } : null;
       }
-      onSave();
+      onSave(result);
     } catch (error) {
       console.error("Failed to save persona:", error);
+      onSave(null);
     } finally {
       setIsSaving(false);
     }

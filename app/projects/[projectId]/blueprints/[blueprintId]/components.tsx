@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback, createContext, useContext, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { AppIcon } from "../../../../components/Icon";
 import { useUndo } from "../../../../contexts/UndoContext";
 import { ExportButton } from "../../../../components/ExportButton";
@@ -23,43 +22,8 @@ import {
   type Connection,
   type CardPosition,
 } from "./ConnectionOverlay";
-import {
-  createBlankPhase,
-  insertPhaseAt,
-  updatePhase,
-  deletePhase,
-  insertColumnAt,
-  createBasicCard,
-  updateBasicCard,
-  deleteBasicCard,
-  duplicateBasicCard,
-  updateBasicCardPainPoints,
-  updateBasicCardMarkers,
-  createTeamSection,
-  deleteTeamSection,
-  duplicateTeamSection,
-  createComplexCard,
-  updateComplexCard,
-  deleteComplexCard,
-  duplicateComplexCard,
-  updateComplexCardPainPoints,
-  updateComplexCardSoftware,
-  updateComplexCardMarkers,
-  createDecisionCard,
-  updateDecisionCard,
-  deleteDecisionCard,
-  duplicateDecisionCard,
-  createTeam,
-  updateTeam,
-  createSoftwareService,
-  updateSoftwareService,
-  updateBasicCardOrder,
-  updateDecisionCardOrder,
-  updateComplexCardOrder,
-  insertBasicCardAt,
-  insertComplexCardAt,
-  type PainPoint,
-} from "../actions";
+import { useBlueprintCache } from "./BlueprintCacheContext";
+import type { PainPoint } from "./cache-types";
 import { BlueprintInsightsControls } from "./InsightsWrapper";
 import { useSelectMode } from "../../../../contexts/SelectModeContext";
 
@@ -282,34 +246,32 @@ function getAllCardIds(blueprint: Blueprint): string[] {
 
 function BlueprintSelectModeToolbar({ allCardIds }: { allCardIds: string[] }) {
   const ctx = useSelectMode();
-  const router = useRouter();
+  const cache = useBlueprintCache();
   if (!ctx) return null;
 
   const { isSelectMode, setSelectMode, selectedIds, selectAll, clearSelection } = ctx;
   const count = selectedIds.size;
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     for (const composite of selectedIds) {
       const [type, id] = composite.split(":");
-      if (type === "basic") await deleteBasicCard(id);
-      else if (type === "complex") await deleteComplexCard(id);
-      else if (type === "decision") await deleteDecisionCard(id);
+      if (type === "basic") cache.deleteBasicCard(id);
+      else if (type === "complex") cache.deleteComplexCard(id);
+      else if (type === "decision") cache.deleteDecisionCard(id);
     }
     clearSelection();
     setSelectMode(false);
-    router.refresh();
   };
 
-  const handleBulkDuplicate = async () => {
+  const handleBulkDuplicate = () => {
     for (const composite of selectedIds) {
       const [type, id] = composite.split(":");
-      if (type === "basic") await duplicateBasicCard(id);
-      else if (type === "complex") await duplicateComplexCard(id);
-      else if (type === "decision") await duplicateDecisionCard(id);
+      if (type === "basic") cache.duplicateBasicCard(id);
+      else if (type === "complex") cache.duplicateComplexCard(id);
+      else if (type === "decision") cache.duplicateDecisionCard(id);
     }
     clearSelection();
     setSelectMode(false);
-    router.refresh();
   };
 
   return (
@@ -399,12 +361,20 @@ function BlueprintSelectModeCheckbox({
 // MAIN EDITOR COMPONENT
 // ============================================
 
-export function BlueprintEditor({ blueprint, projectId, journeyMaps, blueprints, personas }: BlueprintEditorProps) {
-  const router = useRouter();
+export function BlueprintEditor({ blueprint: blueprintProp, projectId, journeyMaps, blueprints, personas }: BlueprintEditorProps) {
+  const cache = useBlueprintCache();
+  const blueprint = cache.data ?? blueprintProp;
   const columnWidth = 220; // Extra width for connection anchor spacing
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [saveToast, setSaveToast] = useState<"saved" | "error" | null>(null);
+  const handleSave = useCallback(async () => {
+    const result = await cache.syncNow();
+    if (result.success) setSaveToast("saved");
+    else setSaveToast("error");
+    setTimeout(() => setSaveToast(null), 2000);
+  }, [cache]);
   
   // Canvas navigation (zoom, pan, minimap)
   const {
@@ -621,15 +591,12 @@ export function BlueprintEditor({ blueprint, projectId, journeyMaps, blueprints,
             }
           }
           
-          const { createConnection } = await import("../actions");
-          await createConnection(
-            blueprint.id,
+          cache.createConnection(
             dragStart.cardId,
             dragStart.cardType,
             hoveredTargetId,
             targetCard.type
           );
-          router.refresh();
         }
       }
       
@@ -647,11 +614,10 @@ export function BlueprintEditor({ blueprint, projectId, journeyMaps, blueprints,
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isDragging, dragStart, hoveredTargetId, cardPositions, blueprint.id, router]);
+  }, [isDragging, dragStart, hoveredTargetId, cardPositions, blueprint.id, cache]);
 
-  const handleAddPhase = async () => {
-    await createBlankPhase(blueprint.id);
-    router.refresh();
+  const handleAddPhase = () => {
+    cache.createBlankPhase();
   };
 
   // Convert blueprint connections to the format needed by ConnectionOverlay
@@ -874,6 +840,24 @@ export function BlueprintEditor({ blueprint, projectId, journeyMaps, blueprints,
               <AppIcon name="add" size="xs" />
               Add Phase
             </button>
+            <div className="flex items-center gap-2">
+              {cache.dirty && (
+                <span className="text-xs text-[var(--text-muted)]">Unsaved</span>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={!cache.dirty || cache.syncStatus === "saving"}
+                className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+              >
+                {cache.syncStatus === "saving" ? "Saving…" : "Save"}
+              </button>
+              {cache.syncStatus === "saved" && (
+                <span className="text-xs text-green-600">Saved</span>
+              )}
+              {saveToast === "error" && (
+                <span className="text-xs text-red-600">Save failed</span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1038,8 +1022,6 @@ function PhaseHeaderRow({
   blueprintId: string;
   columnWidth: number;
 }) {
-  const router = useRouter();
-
   return (
     <div className="mb-1 flex">
       <div
@@ -1054,7 +1036,6 @@ function PhaseHeaderRow({
           columnWidth={columnWidth}
           isFirst={phaseIndex === 0}
           isLast={phaseIndex === phases.length - 1}
-          onRefresh={() => router.refresh()}
         />
       ))}
     </div>
@@ -1067,15 +1048,14 @@ function PhaseHeaderBand({
   columnWidth,
   isFirst,
   isLast,
-  onRefresh,
 }: {
   phase: Phase;
   blueprintId: string;
   columnWidth: number;
   isFirst: boolean;
   isLast: boolean;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const undo = useUndo();
   const [isHovered, setIsHovered] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -1100,48 +1080,45 @@ function PhaseHeaderBand({
     }
   }, [isEditingTimeframe]);
 
-  const handleTitleBlur = async () => {
+  const handleTitleBlur = () => {
     setIsEditingTitle(false);
     if (title.trim() !== phase.title) {
       const newVal = title.trim();
       const oldVal = phase.title;
       undo?.pushUndo({
-        undo: () => updatePhase(phase.id, "title", oldVal),
-        redo: () => updatePhase(phase.id, "title", newVal),
+        undo: async () => cache.updatePhase(phase.id, "title", oldVal),
+        redo: async () => cache.updatePhase(phase.id, "title", newVal),
+        skipRefresh: true,
       });
-      await updatePhase(phase.id, "title", newVal);
-      onRefresh();
+      cache.updatePhase(phase.id, "title", newVal);
     }
   };
 
-  const handleTimeframeBlur = async () => {
+  const handleTimeframeBlur = () => {
     setIsEditingTimeframe(false);
     if (timeframe.trim() !== (phase.timeframe || "")) {
       const newVal = timeframe.trim();
       const oldVal = phase.timeframe || "";
       undo?.pushUndo({
-        undo: () => updatePhase(phase.id, "timeframe", oldVal),
-        redo: () => updatePhase(phase.id, "timeframe", newVal),
+        undo: async () => cache.updatePhase(phase.id, "timeframe", oldVal),
+        redo: async () => cache.updatePhase(phase.id, "timeframe", newVal),
+        skipRefresh: true,
       });
-      await updatePhase(phase.id, "timeframe", newVal);
-      onRefresh();
+      cache.updatePhase(phase.id, "timeframe", newVal);
     }
   };
 
-  const handleInsertLeft = async () => {
-    await insertPhaseAt(blueprintId, phase.id, "before");
-    onRefresh();
+  const handleInsertLeft = () => {
+    cache.insertPhaseAt(phase.id, "before");
   };
 
-  const handleInsertRight = async () => {
-    await insertPhaseAt(blueprintId, phase.id, "after");
-    onRefresh();
+  const handleInsertRight = () => {
+    cache.insertPhaseAt(phase.id, "after");
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (confirm(`Delete phase "${phase.title}" and all its contents?`)) {
-      await deletePhase(phase.id);
-      onRefresh();
+      cache.deletePhase(phase.id);
     }
   };
 
@@ -1303,8 +1280,6 @@ function LaneRow({
   columnWidth: number;
   columnIndexMap: Map<string, number>;
 }) {
-  const router = useRouter();
-
   return (
     <div className="flex">
       <div
@@ -1330,7 +1305,6 @@ function LaneRow({
             blueprintId={blueprintId}
             columnWidth={columnWidth}
             columnIndexMap={columnIndexMap}
-            onRefresh={() => router.refresh()}
           />
         ))
       )}
@@ -1350,7 +1324,6 @@ function LaneCellWithInsertButtons({
   blueprintId,
   columnWidth,
   columnIndexMap,
-  onRefresh,
 }: {
   lane: { type: string; label: string; isComplex: boolean };
   column: Column;
@@ -1359,18 +1332,16 @@ function LaneCellWithInsertButtons({
   blueprintId: string;
   columnWidth: number;
   columnIndexMap: Map<string, number>;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isHovered, setIsHovered] = useState(false);
 
-  const handleInsertLeft = async () => {
-    await insertColumnAt(column.id, "before");
-    onRefresh();
+  const handleInsertLeft = () => {
+    cache.insertColumnAt(column.id, "before");
   };
 
-  const handleInsertRight = async () => {
-    await insertColumnAt(column.id, "after");
-    onRefresh();
+  const handleInsertRight = () => {
+    cache.insertColumnAt(column.id, "after");
   };
 
   return (
@@ -1413,7 +1384,6 @@ function LaneCellWithInsertButtons({
           softwareServices={softwareServices}
           blueprintId={blueprintId}
           columnIndexMap={columnIndexMap}
-          onRefresh={onRefresh}
         />
       ) : (
         <div className="px-4 py-2">
@@ -1422,7 +1392,6 @@ function LaneCellWithInsertButtons({
             column={column}
             cards={column.basicCards.filter((c) => c.laneType === lane.type)}
             columnIndexMap={columnIndexMap}
-            onRefresh={onRefresh}
           />
         </div>
       )}
@@ -1526,14 +1495,13 @@ function BasicLaneCellContent({
   column,
   cards,
   columnIndexMap,
-  onRefresh,
 }: {
   laneType: string;
   column: Column;
   cards: BasicCard[];
   columnIndexMap: Map<string, number>;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const allowsDecisionCards = DECISION_ALLOWED_LANES.includes(laneType);
   const [insertMenuIndex, setInsertMenuIndex] = useState<number | null>(null);
   const { hasVerticalDecisionConnector } = useConnectionDrag();
@@ -1543,36 +1511,25 @@ function BasicLaneCellContent({
   const containerRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  const handleAddCard = async () => {
-    const card = await createBasicCard(column.id, laneType);
-    if (card) {
-      sessionStorage.setItem("focusCardTitle", card.id);
-    }
-    onRefresh();
+  const handleAddCard = () => {
+    const { cardId } = cache.createBasicCard(column.id, laneType);
+    sessionStorage.setItem("focusCardTitle", cardId);
   };
 
-  const handleAddDecisionCard = async () => {
-    const card = await createDecisionCard(column.id, laneType);
-    if (card) {
-      sessionStorage.setItem("focusCardTitle", card.id);
-    }
-    onRefresh();
+  const handleAddDecisionCard = () => {
+    const { cardId } = cache.createDecisionCard(column.id, laneType);
+    sessionStorage.setItem("focusCardTitle", cardId);
   };
 
-  const handleInsertCard = async (atOrder: number, type: "basic" | "decision") => {
+  const handleInsertCard = (atOrder: number, type: "basic" | "decision") => {
     setInsertMenuIndex(null);
     if (type === "basic") {
-      const card = await insertBasicCardAt(column.id, laneType, atOrder);
-      if (card) {
-        sessionStorage.setItem("focusCardTitle", card.id);
-      }
+      const { cardId } = cache.insertBasicCardAt(column.id, laneType, atOrder);
+      sessionStorage.setItem("focusCardTitle", cardId);
     } else {
-      const card = await createDecisionCard(column.id, laneType, atOrder);
-      if (card) {
-        sessionStorage.setItem("focusCardTitle", card.id);
-      }
+      const { cardId } = cache.createDecisionCard(column.id, laneType, atOrder);
+      sessionStorage.setItem("focusCardTitle", cardId);
     }
-    onRefresh();
   };
 
   // Get decision cards for this lane - now works for Customer Action, Frontstage, Backstage
@@ -1644,15 +1601,14 @@ function BasicLaneCellContent({
       const targetOrder = targetNode.card.order;
       
       if (dragState.draggingCardType === "basic") {
-        await updateBasicCardOrder(dragState.draggingCardId, targetOrder);
+        cache.updateBasicCardOrder(dragState.draggingCardId, targetOrder);
       } else if (dragState.draggingCardType === "decision") {
-        await updateDecisionCardOrder(dragState.draggingCardId, targetOrder);
+        cache.updateDecisionCardOrder(dragState.draggingCardId, targetOrder);
       }
-      onRefresh();
     }
     
     setDragState(INITIAL_REORDER_STATE);
-  }, [dragState, flowNodes, onRefresh]);
+  }, [dragState, flowNodes, cache]);
 
   useEffect(() => {
     if (dragState.draggingCardId) {
@@ -1722,7 +1678,6 @@ function BasicLaneCellContent({
                       columnIndex={columnIndexMap.get(node.card.id) ?? 0}
                       cardIndex={index}
                       onStartCardDrag={flowNodes.length > 1 ? handleStartCardDrag : undefined}
-                      onRefresh={onRefresh}
                     />
                   ) : (
                     <DecisionCardComponent
@@ -1730,7 +1685,6 @@ function BasicLaneCellContent({
                       columnIndex={columnIndexMap.get(node.card.id) ?? 0}
                       cardIndex={index}
                       onStartCardDrag={flowNodes.length > 1 ? handleStartCardDrag : undefined}
-                      onRefresh={onRefresh}
                     />
                   )}
                 </div>
@@ -1781,7 +1735,6 @@ function ComplexLaneCellContent({
   softwareServices,
   blueprintId,
   columnIndexMap,
-  onRefresh,
 }: {
   laneType: string;
   column: Column;
@@ -1790,8 +1743,8 @@ function ComplexLaneCellContent({
   softwareServices: SoftwareService[];
   blueprintId: string;
   columnIndexMap: Map<string, number>;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -1809,20 +1762,17 @@ function ComplexLaneCellContent({
   }, [isCreatingTeam]);
 
   // Create team section WITHOUT auto-creating a card
-  const handleCreateTeamSection = async (teamId: string) => {
-    await createTeamSection(column.id, laneType, teamId);
-    onRefresh();
+  const handleCreateTeamSection = (teamId: string) => {
+    cache.createTeamSection(column.id, laneType, teamId);
   };
 
-  const handleCreateNewTeam = async () => {
+  const handleCreateNewTeam = () => {
     if (!newTeamName.trim()) return;
-    const team = await createTeam(blueprintId, newTeamName.trim());
-    if (team) {
-      await createTeamSection(column.id, laneType, team.id);
-    }
+    const { teamId } = cache.createTeam();
+    cache.updateTeam(teamId, "name", newTeamName.trim());
+    cache.createTeamSection(column.id, laneType, teamId);
     setNewTeamName("");
     setIsCreatingTeam(false);
-    onRefresh();
   };
 
   // Check if ANY team exists in this column (Frontstage OR Backstage)
@@ -1843,7 +1793,6 @@ function ComplexLaneCellContent({
             decisionCards={decisionCards}
             columnId={column.id}
             laneType={laneType}
-            onRefresh={onRefresh}
           />
         ))}
       </div>
@@ -1995,7 +1944,6 @@ function TeamSectionComponent({
   decisionCards,
   columnId,
   laneType,
-  onRefresh,
 }: {
   section: TeamSectionData;
   softwareServices: SoftwareService[];
@@ -2004,8 +1952,8 @@ function TeamSectionComponent({
   decisionCards: DecisionCard[];
   columnId: string;
   laneType: string;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [showMenu, setShowMenu] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -2030,36 +1978,25 @@ function TeamSectionComponent({
     ...decisionCards.map(card => ({ type: "decision" as const, card })),
   ].sort((a, b) => a.card.order - b.card.order);
 
-  const handleAddCard = async () => {
-    const card = await createComplexCard(section.id);
-    if (card) {
-      sessionStorage.setItem("focusCardTitle", card.id);
-    }
-    onRefresh();
+  const handleAddCard = () => {
+    const { cardId } = cache.createComplexCard(section.id);
+    sessionStorage.setItem("focusCardTitle", cardId);
   };
 
-  const handleAddDecisionCard = async () => {
-    const card = await createDecisionCard(columnId, laneType);
-    if (card) {
-      sessionStorage.setItem("focusCardTitle", card.id);
-    }
-    onRefresh();
+  const handleAddDecisionCard = () => {
+    const { cardId } = cache.createDecisionCard(columnId, laneType);
+    sessionStorage.setItem("focusCardTitle", cardId);
   };
 
-  const handleInsertCard = async (atOrder: number, type: "complex" | "decision") => {
+  const handleInsertCard = (atOrder: number, type: "complex" | "decision") => {
     setInsertMenuIndex(null);
     if (type === "complex") {
-      const card = await insertComplexCardAt(section.id, atOrder);
-      if (card) {
-        sessionStorage.setItem("focusCardTitle", card.id);
-      }
+      const { cardId } = cache.insertComplexCardAt(section.id, atOrder);
+      sessionStorage.setItem("focusCardTitle", cardId);
     } else {
-      const card = await createDecisionCard(columnId, laneType, atOrder);
-      if (card) {
-        sessionStorage.setItem("focusCardTitle", card.id);
-      }
+      const { cardId } = cache.createDecisionCard(columnId, laneType, atOrder);
+      sessionStorage.setItem("focusCardTitle", cardId);
     }
-    onRefresh();
   };
 
   // Drag handlers for complex cards
@@ -2117,15 +2054,14 @@ function TeamSectionComponent({
       const targetOrder = targetNode.card.order;
       
       if (dragState.draggingCardType === "complex") {
-        await updateComplexCardOrder(dragState.draggingCardId, targetOrder);
+        cache.updateComplexCardOrder(dragState.draggingCardId, targetOrder);
       } else if (dragState.draggingCardType === "decision") {
-        await updateDecisionCardOrder(dragState.draggingCardId, targetOrder);
+        cache.updateDecisionCardOrder(dragState.draggingCardId, targetOrder);
       }
-      onRefresh();
     }
     
     setDragState(INITIAL_REORDER_STATE);
-  }, [dragState, flowNodes, onRefresh]);
+  }, [dragState, flowNodes, cache]);
 
   useEffect(() => {
     if (dragState.draggingCardId) {
@@ -2146,30 +2082,26 @@ function TeamSectionComponent({
     isDraggingCards: !!dragState.draggingCardId,
   };
 
-  const handleColorSelect = async (token: TeamColorToken) => {
-    await updateTeam(section.team.id, "colorHex", token.background);
+  const handleColorSelect = (token: TeamColorToken) => {
+    cache.updateTeam(section.team.id, "colorHex", token.background);
     setShowColorPicker(false);
     setShowMenu(false);
-    onRefresh();
   };
 
-  const handleIconSelect = async (iconName: string) => {
-    await updateTeam(section.team.id, "iconName", iconName);
+  const handleIconSelect = (iconName: string) => {
+    cache.updateTeam(section.team.id, "iconName", iconName);
     setShowIconPicker(false);
     setShowMenu(false);
-    onRefresh();
   };
 
-  const handleDuplicate = async () => {
-    await duplicateTeamSection(section.id);
+  const handleDuplicate = () => {
+    cache.duplicateTeamSection(section.id);
     setShowMenu(false);
-    onRefresh();
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (confirm(`Remove team "${section.team.name}" and its cards from this cell?`)) {
-      await deleteTeamSection(section.id);
-      onRefresh();
+      cache.deleteTeamSection(section.id);
     }
     setShowMenu(false);
   };
@@ -2319,7 +2251,6 @@ function TeamSectionComponent({
                         columnIndex={columnIndexMap.get(node.card.id) ?? 0}
                         cardIndex={index}
                         onStartCardDrag={flowNodes.length > 1 ? handleStartCardDrag : undefined}
-                        onRefresh={onRefresh}
                       />
                     ) : (
                       <DecisionCardComponent
@@ -2327,7 +2258,6 @@ function TeamSectionComponent({
                         columnIndex={columnIndexMap.get(node.card.id) ?? 0}
                         cardIndex={index}
                         onStartCardDrag={flowNodes.length > 1 ? handleStartCardDrag : undefined}
-                        onRefresh={onRefresh}
                       />
                     )}
                   </div>
@@ -2488,14 +2418,13 @@ function BasicCardComponent({
   columnIndex,
   cardIndex,
   onStartCardDrag,
-  onRefresh,
 }: {
   card: BasicCard;
   columnIndex: number;
   cardIndex: number;
   onStartCardDrag?: (cardId: string, cardType: CardType, index: number) => void;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -2537,18 +2466,16 @@ function BasicCardComponent({
     }
   }, [isEditingTitle]);
 
-  const handleTitleBlur = async () => {
+  const handleTitleBlur = () => {
     setIsEditingTitle(false);
     if (title.trim() !== card.title) {
-      await updateBasicCard(card.id, "title", title.trim() || "Untitled");
-      onRefresh();
+      cache.updateBasicCard(card.id, "title", title.trim() || "Untitled");
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (confirm("Delete this card?")) {
-      await deleteBasicCard(card.id);
-      onRefresh();
+      cache.deleteBasicCard(card.id);
     }
   };
 
@@ -2660,7 +2587,6 @@ function BasicCardComponent({
         <BasicCardExpanded
           card={card}
           painPoints={painPoints}
-          onRefresh={onRefresh}
           onDelete={handleDelete}
         />
       )}
@@ -2676,33 +2602,29 @@ function BasicCardComponent({
 function BasicCardExpanded({
   card,
   painPoints,
-  onRefresh,
   onDelete,
 }: {
   card: BasicCard;
   painPoints: PainPoint[];
-  onRefresh: () => void;
   onDelete: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [description, setDescription] = useState(card.description || "");
   const [isEditingDesc, setIsEditingDesc] = useState(false);
 
-  const handleDescBlur = async () => {
+  const handleDescBlur = () => {
     setIsEditingDesc(false);
     if (description.trim() !== (card.description || "")) {
-      await updateBasicCard(card.id, "description", description.trim() || null);
-      onRefresh();
+      cache.updateBasicCard(card.id, "description", description.trim() || null);
     }
   };
 
-  const handleToggleStart = async () => {
-    await updateBasicCardMarkers(card.id, { isStart: !card.isStart });
-    onRefresh();
+  const handleToggleStart = () => {
+    cache.updateBasicCardMarkers(card.id, { isStart: !card.isStart });
   };
 
-  const handleToggleEnd = async () => {
-    await updateBasicCardMarkers(card.id, { isEnd: !card.isEnd });
-    onRefresh();
+  const handleToggleEnd = () => {
+    cache.updateBasicCardMarkers(card.id, { isEnd: !card.isEnd });
   };
 
   return (
@@ -2742,7 +2664,6 @@ function BasicCardExpanded({
         cardId={card.id}
         cardType="basic"
         painPoints={painPoints}
-        onRefresh={onRefresh}
       />
 
       {/* Start/End markers */}
@@ -2799,14 +2720,13 @@ function DecisionCardComponent({
   columnIndex,
   cardIndex,
   onStartCardDrag,
-  onRefresh,
 }: {
   card: DecisionCard;
   columnIndex: number;
   cardIndex: number;
   onStartCardDrag?: (cardId: string, cardType: CardType, index: number) => void;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [isEditingQuestion, setIsEditingQuestion] = useState(false);
@@ -2856,26 +2776,23 @@ function DecisionCardComponent({
     }
   }, [isEditingQuestion]);
 
-  const handleTitleBlur = async () => {
+  const handleTitleBlur = () => {
     setIsEditingTitle(false);
     if (title.trim() !== card.title) {
-      await updateDecisionCard(card.id, { title: title.trim() || "Decision" });
-      onRefresh();
+      cache.updateDecisionCard(card.id, "title", title.trim() || "Decision");
     }
   };
 
-  const handleQuestionBlur = async () => {
+  const handleQuestionBlur = () => {
     setIsEditingQuestion(false);
     if (question.trim() !== card.question) {
-      await updateDecisionCard(card.id, { question: question.trim() || "What condition?" });
-      onRefresh();
+      cache.updateDecisionCard(card.id, "question", question.trim() || "What condition?");
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (confirm("Delete this decision card?")) {
-      await deleteDecisionCard(card.id);
-      onRefresh();
+      cache.deleteDecisionCard(card.id);
     }
   };
 
@@ -3027,7 +2944,6 @@ function DecisionCardComponent({
       {isExpanded && (
         <DecisionCardExpanded
           card={card}
-          onRefresh={onRefresh}
           onDelete={handleDelete}
         />
       )}
@@ -3042,32 +2958,28 @@ function DecisionCardComponent({
 
 function DecisionCardExpanded({
   card,
-  onRefresh,
   onDelete,
 }: {
   card: DecisionCard;
-  onRefresh: () => void;
   onDelete: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [description, setDescription] = useState(card.description || "");
   const [isEditingDesc, setIsEditingDesc] = useState(false);
 
-  const handleDescBlur = async () => {
+  const handleDescBlur = () => {
     setIsEditingDesc(false);
     if (description.trim() !== (card.description || "")) {
-      await updateDecisionCard(card.id, { description: description.trim() || null });
-      onRefresh();
+      cache.updateDecisionCard(card.id, "description", description.trim() || null);
     }
   };
 
-  const handleToggleStart = async () => {
-    await updateDecisionCard(card.id, { isStart: !card.isStart });
-    onRefresh();
+  const handleToggleStart = () => {
+    cache.updateDecisionCard(card.id, "isStart", !card.isStart);
   };
 
-  const handleToggleEnd = async () => {
-    await updateDecisionCard(card.id, { isEnd: !card.isEnd });
-    onRefresh();
+  const handleToggleEnd = () => {
+    cache.updateDecisionCard(card.id, "isEnd", !card.isEnd);
   };
 
   return (
@@ -3160,7 +3072,6 @@ function ComplexCardComponent({
   columnIndex,
   cardIndex,
   onStartCardDrag,
-  onRefresh,
 }: {
   card: ComplexCard;
   softwareServices: SoftwareService[];
@@ -3169,8 +3080,8 @@ function ComplexCardComponent({
   columnIndex: number;
   cardIndex: number;
   onStartCardDrag?: (cardId: string, cardType: CardType, index: number) => void;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -3214,18 +3125,16 @@ function ComplexCardComponent({
     }
   }, [isEditingTitle]);
 
-  const handleTitleBlur = async () => {
+  const handleTitleBlur = () => {
     setIsEditingTitle(false);
     if (title.trim() !== card.title) {
-      await updateComplexCard(card.id, "title", title.trim() || "Untitled");
-      onRefresh();
+      cache.updateComplexCard(card.id, "title", title.trim() || "Untitled");
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (confirm("Delete this card?")) {
-      await deleteComplexCard(card.id);
-      onRefresh();
+      cache.deleteComplexCard(card.id);
     }
   };
 
@@ -3361,7 +3270,6 @@ function ComplexCardComponent({
           cardSoftwareIds={cardSoftwareIds}
           blueprintId={blueprintId}
           teamColor={teamColor}
-          onRefresh={onRefresh}
           onDelete={handleDelete}
         />
       )}
@@ -3381,7 +3289,6 @@ function ComplexCardExpanded({
   cardSoftwareIds,
   blueprintId,
   teamColor,
-  onRefresh,
   onDelete,
 }: {
   card: ComplexCard;
@@ -3390,28 +3297,25 @@ function ComplexCardExpanded({
   cardSoftwareIds: string[];
   blueprintId: string;
   teamColor: string;
-  onRefresh: () => void;
   onDelete: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [description, setDescription] = useState(card.description || "");
   const [isEditingDesc, setIsEditingDesc] = useState(false);
 
-  const handleDescBlur = async () => {
+  const handleDescBlur = () => {
     setIsEditingDesc(false);
     if (description.trim() !== (card.description || "")) {
-      await updateComplexCard(card.id, "description", description.trim() || null);
-      onRefresh();
+      cache.updateComplexCard(card.id, "description", description.trim() || null);
     }
   };
 
-  const handleToggleStart = async () => {
-    await updateComplexCardMarkers(card.id, { isStart: !card.isStart });
-    onRefresh();
+  const handleToggleStart = () => {
+    cache.updateComplexCardMarkers(card.id, { isStart: !card.isStart });
   };
 
-  const handleToggleEnd = async () => {
-    await updateComplexCardMarkers(card.id, { isEnd: !card.isEnd });
-    onRefresh();
+  const handleToggleEnd = () => {
+    cache.updateComplexCardMarkers(card.id, { isEnd: !card.isEnd });
   };
 
   return (
@@ -3452,14 +3356,12 @@ function ComplexCardExpanded({
         softwareServices={softwareServices}
         cardSoftwareIds={cardSoftwareIds}
         blueprintId={blueprintId}
-        onRefresh={onRefresh}
       />
 
       <InlinePainPointEditor
         cardId={card.id}
         cardType="complex"
         painPoints={painPoints}
-        onRefresh={onRefresh}
       />
 
       {/* Start/End markers */}
@@ -3516,42 +3418,36 @@ function SoftwareServicesEditor({
   softwareServices,
   cardSoftwareIds,
   blueprintId,
-  onRefresh,
 }: {
   cardId: string;
   softwareServices: SoftwareService[];
   cardSoftwareIds: string[];
   blueprintId: string;
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [editingColorId, setEditingColorId] = useState<string | null>(null);
 
-  const toggleSoftware = async (softwareId: string) => {
+  const toggleSoftware = (softwareId: string) => {
     const newIds = cardSoftwareIds.includes(softwareId)
       ? cardSoftwareIds.filter((id) => id !== softwareId)
       : [...cardSoftwareIds, softwareId];
-    await updateComplexCardSoftware(cardId, newIds);
-    onRefresh();
+    cache.updateComplexCardSoftware(cardId, newIds);
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!newLabel.trim()) return;
-    const sw = await createSoftwareService(blueprintId, newLabel.trim());
-    if (sw) {
-      await updateComplexCardSoftware(cardId, [...cardSoftwareIds, sw.id]);
-    }
+    const { softwareId } = cache.createSoftwareService(newLabel.trim());
+    cache.updateComplexCardSoftware(cardId, [...cardSoftwareIds, softwareId]);
     setNewLabel("");
     setIsCreating(false);
-    onRefresh();
   };
 
-  const handleColorSelect = async (softwareId: string, token: SoftwareColorToken) => {
-    await updateSoftwareService(softwareId, "colorHex", token.background);
+  const handleColorSelect = (softwareId: string, token: SoftwareColorToken) => {
+    cache.updateSoftwareService(softwareId, "colorHex", token.background);
     setEditingColorId(null);
-    onRefresh();
   };
 
   return (
@@ -3671,23 +3567,21 @@ function InlinePainPointEditor({
   cardId,
   cardType,
   painPoints,
-  onRefresh,
 }: {
   cardId: string;
   cardType: "basic" | "complex";
   painPoints: PainPoint[];
-  onRefresh: () => void;
 }) {
+  const cache = useBlueprintCache();
   const [localPainPoints, setLocalPainPoints] = useState<SharedPainPoint[]>(painPoints);
 
-  const handleUpdate = async (newPainPoints: SharedPainPoint[]) => {
+  const handleUpdate = (newPainPoints: SharedPainPoint[]) => {
     setLocalPainPoints(newPainPoints);
     if (cardType === "basic") {
-      await updateBasicCardPainPoints(cardId, newPainPoints as PainPoint[]);
+      cache.updateBasicCardPainPoints(cardId, newPainPoints as PainPoint[]);
     } else {
-      await updateComplexCardPainPoints(cardId, newPainPoints as PainPoint[]);
+      cache.updateComplexCardPainPoints(cardId, newPainPoints as PainPoint[]);
     }
-    onRefresh();
   };
 
   const fontSize = cardType === "basic" ? "11px" : "10px";

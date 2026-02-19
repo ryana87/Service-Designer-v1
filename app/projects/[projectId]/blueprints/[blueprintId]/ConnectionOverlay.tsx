@@ -1,9 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { deleteConnection, updateConnection } from "../actions";
 import type { ConnectorType, ArrowDirection, StrokeWeight, StrokePattern, StrokeColor } from "../actions";
+import { useBlueprintCache } from "./BlueprintCacheContext";
 
 // ============================================
 // TYPES
@@ -1057,7 +1056,7 @@ export function ConnectionOverlay({
   highlightedConnectionIds,
   onConnectionHover,
 }: ConnectionOverlayProps) {
-  const router = useRouter();
+  const cache = useBlueprintCache();
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
 
@@ -1133,10 +1132,9 @@ export function ConnectionOverlay({
   }, []);
 
   // Handle save from edit modal
-  const handleSaveConnection = async (updates: Partial<Connection>) => {
+  const handleSaveConnection = (updates: Partial<Connection>) => {
     if (!selectedConnectionId) return;
-    
-    await updateConnection(selectedConnectionId, {
+    cache.updateConnection(selectedConnectionId, {
       connectorType: updates.connectorType,
       label: updates.label,
       arrowDirection: updates.arrowDirection,
@@ -1144,16 +1142,13 @@ export function ConnectionOverlay({
       strokePattern: updates.strokePattern,
       strokeColor: updates.strokeColor,
     });
-    
-    router.refresh();
   };
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!selectedConnectionId) return;
-    await deleteConnection(selectedConnectionId);
+    cache.deleteConnection(selectedConnectionId);
     setSelectedConnectionId(null);
-    router.refresh();
   };
 
   // Get container rect for viewport clamping

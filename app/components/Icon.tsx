@@ -13,6 +13,7 @@ const ICON_MAP: Record<string, string> = {
   folder: "folder",
   settings: "settings",
   help: "help_outline",
+  logout: "logout",
   
   // Actions
   add: "add",

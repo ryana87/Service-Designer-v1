@@ -2,8 +2,29 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "../lib/db";
+import { getSession } from "../lib/session";
+
+async function requireSession() {
+  const session = await getSession();
+  if (!session) throw new Error("Unauthorized");
+  return session;
+}
+
+/** Use in server actions that take projectId; throws if not owner. */
+export async function requireProjectOwner(projectId: string) {
+  const session = await requireSession();
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { ownerId: true },
+  });
+  if (!project || project.ownerId !== session.userId) {
+    throw new Error("Project not found or access denied");
+  }
+  return session;
+}
 
 export async function createProject(formData: FormData) {
+  const session = await requireSession();
   const name = formData.get("name") as string;
   const description = formData.get("description") as string | null;
 
@@ -11,21 +32,32 @@ export async function createProject(formData: FormData) {
     throw new Error("Project name is required");
   }
 
-  await prisma.project.create({
+  const project = await prisma.project.create({
     data: {
       name: name.trim(),
       description: description?.trim() || null,
+      ownerId: session.userId,
     },
   });
 
   revalidatePath("/projects");
+
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    createdAt: project.createdAt.toISOString(),
+    updatedAt: project.updatedAt.toISOString(),
+    journeyMapCount: 0,
+    blueprintCount: 0,
+  };
 }
 
 export async function deleteProject(projectId: string) {
+  await requireProjectOwner(projectId);
   await prisma.project.delete({
     where: { id: projectId },
   });
-
   revalidatePath("/projects");
 }
 
@@ -41,10 +73,10 @@ export async function createPersonaLegacy(
     avatarUrl?: string;
   }
 ) {
+  await requireProjectOwner(projectId);
   const project = await prisma.project.findUnique({
     where: { id: projectId },
   });
-
   if (!project) return null;
 
   const persona = await prisma.persona.create({
@@ -72,8 +104,8 @@ export async function updatePersonaLegacy(
     where: { id: personaId },
     select: { projectId: true },
   });
-
   if (!persona) return null;
+  await requireProjectOwner(persona.projectId);
 
   const updated = await prisma.persona.update({
     where: { id: personaId },
@@ -89,8 +121,8 @@ export async function deletePersona(personaId: string) {
     where: { id: personaId },
     select: { projectId: true },
   });
-
   if (!persona) return;
+  await requireProjectOwner(persona.projectId);
 
   // Note: JourneyMaps referencing this persona will have personaId set to null
   // due to onDelete: SetNull in the schema
@@ -102,6 +134,7 @@ export async function deletePersona(personaId: string) {
 }
 
 export async function getProjectPersonas(projectId: string) {
+  await requireProjectOwner(projectId);
   return prisma.persona.findMany({
     where: { projectId },
     orderBy: { createdAt: "asc" },

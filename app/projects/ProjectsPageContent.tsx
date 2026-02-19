@@ -2,25 +2,20 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AppIcon } from "../components/Icon";
 import { createProject, deleteProject } from "./actions";
-
-type Project = {
-  id: string;
-  name: string;
-  description: string | null;
-  createdAt: string;
-  updatedAt: string;
-  journeyMapCount: number;
-  blueprintCount: number;
-};
+import { useProjectsListCache, type ProjectListItem } from "./ProjectsListCacheContext";
 
 type SortField = "updatedAt" | "createdAt" | "name";
 type FilterType = "all" | "hasJourneyMaps" | "hasBlueprints";
 
-export default function ProjectsPageContent({ projects }: { projects: Project[] }) {
-  const router = useRouter();
+type ProjectsPageContentProps = {
+  userDisplayName: string;
+};
+
+export default function ProjectsPageContent({ userDisplayName }: ProjectsPageContentProps) {
+  const cache = useProjectsListCache();
+  const projects = cache.data.projects;
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("updatedAt");
   const [filterType, setFilterType] = useState<FilterType>("all");
@@ -71,19 +66,21 @@ export default function ProjectsPageContent({ projects }: { projects: Project[] 
     formData.append("name", newProjectName.trim());
     formData.append("description", newProjectDescription.trim());
 
-    await createProject(formData);
+    const created = await createProject(formData);
+    if (created) {
+      cache.addProject(created);
+    }
     setNewProjectName("");
     setNewProjectDescription("");
     setIsCreating(false);
-    router.refresh();
   };
 
-  const handleDeleteProject = async (project: Project, e: React.MouseEvent) => {
+  const handleDeleteProject = async (project: ProjectListItem, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (confirm(`Delete "${project.name}"? This cannot be undone.`)) {
       await deleteProject(project.id);
-      router.refresh();
+      cache.removeProject(project.id);
     }
   };
 
@@ -117,7 +114,7 @@ export default function ProjectsPageContent({ projects }: { projects: Project[] 
             className="font-semibold text-[var(--text-primary)]"
             style={{ fontSize: "18px" }}
           >
-            All Projects
+            {userDisplayName}&apos;s Projects
           </h1>
           <span
             className="rounded-full bg-[var(--bg-sidebar)] px-2 py-0.5 text-[var(--text-muted)]"

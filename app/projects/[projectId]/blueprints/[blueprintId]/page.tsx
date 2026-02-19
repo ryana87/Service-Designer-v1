@@ -4,6 +4,7 @@ import { AppShell, ProjectSidebar } from "../../../../components/AppShell";
 import { SelectModeProvider } from "../../../../contexts/SelectModeContext";
 import { ExportButton } from "../../../../components/ExportButton";
 import { BlueprintEditor } from "./components";
+import { BlueprintCacheProvider, serverBlueprintToCacheDocument } from "./BlueprintCacheContext";
 
 type PageProps = {
   params: Promise<{ projectId: string; blueprintId: string }>;
@@ -70,6 +71,8 @@ export default async function BlueprintPage({ params }: PageProps) {
     notFound();
   }
 
+  const cacheInitialData = serverBlueprintToCacheDocument(blueprint);
+
   return (
     <SelectModeProvider>
     <AppShell
@@ -85,16 +88,18 @@ export default async function BlueprintPage({ params }: PageProps) {
         />
       }
     >
-      <BlueprintEditor
-        blueprint={blueprint}
-        projectId={projectId}
-        journeyMaps={blueprint.project.journeyMaps}
-        blueprints={blueprint.project.serviceBlueprints}
-        personas={blueprint.project.personas.map((p) => ({
-          id: p.id,
-          name: p.name,
-        }))}
-      />
+      <BlueprintCacheProvider initialData={cacheInitialData} blueprintId={blueprintId}>
+        <BlueprintEditor
+          blueprint={blueprint}
+          projectId={projectId}
+          journeyMaps={blueprint.project.journeyMaps}
+          blueprints={blueprint.project.serviceBlueprints}
+          personas={blueprint.project.personas.map((p) => ({
+            id: p.id,
+            name: p.name,
+          }))}
+        />
+      </BlueprintCacheProvider>
     </AppShell>
     </SelectModeProvider>
   );

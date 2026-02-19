@@ -2,8 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "../../../lib/db";
+import { requireProjectOwner } from "../../actions";
 import { TEAM_COLOR_TOKENS, SOFTWARE_COLOR_TOKENS } from "../../../lib/colorTokens";
 import type { BlueprintDraftSpec, BlueprintLaneType } from "../../../onboarding/types";
+import type { BlueprintSyncPayload } from "./[blueprintId]/cache-types";
+
+async function requireBlueprintAccess(blueprintId: string) {
+  const b = await prisma.serviceBlueprint.findUnique({
+    where: { id: blueprintId },
+    select: { projectId: true },
+  });
+  if (!b?.projectId) throw new Error("Blueprint not found");
+  await requireProjectOwner(b.projectId);
+}
 
 // ============================================
 // TYPES
@@ -19,6 +30,7 @@ export type PainPoint = {
 // ============================================
 
 export async function createBlueprint(projectId: string) {
+  await requireProjectOwner(projectId);
   const maxSort = await prisma.serviceBlueprint.aggregate({
     where: { projectId },
     _max: { sortOrder: true },
@@ -64,6 +76,7 @@ function hasComplexLaneContent(spec: BlueprintDraftSpec, laneType: "FRONTSTAGE_A
 }
 
 export async function createBlueprintFromSpec(projectId: string, spec: BlueprintDraftSpec) {
+  await requireProjectOwner(projectId);
   const maxSort = await prisma.serviceBlueprint.aggregate({
     where: { projectId },
     _max: { sortOrder: true },
@@ -337,11 +350,11 @@ async function createSequentialConnections(blueprintId: string) {
 }
 
 export async function renameBlueprint(blueprintId: string, newName: string) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     select: { projectId: true },
   });
-
   if (!blueprint) return;
 
   await prisma.serviceBlueprint.update({
@@ -353,11 +366,11 @@ export async function renameBlueprint(blueprintId: string, newName: string) {
 }
 
 export async function deleteBlueprint(blueprintId: string) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     select: { projectId: true },
   });
-
   if (!blueprint) return { projectId: null };
 
   await prisma.serviceBlueprint.delete({
@@ -369,6 +382,7 @@ export async function deleteBlueprint(blueprintId: string) {
 }
 
 export async function duplicateBlueprint(blueprintId: string) {
+  await requireBlueprintAccess(blueprintId);
   const original = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     include: {
@@ -390,7 +404,6 @@ export async function duplicateBlueprint(blueprintId: string) {
       softwareServices: true,
     },
   });
-
   if (!original) return null;
 
   const maxSort = await prisma.serviceBlueprint.aggregate({
@@ -524,11 +537,11 @@ export async function duplicateBlueprint(blueprintId: string) {
 // ============================================
 
 export async function moveBlueprintUp(blueprintId: string) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     select: { projectId: true, sortOrder: true },
   });
-
   if (!blueprint) return;
 
   const above = await prisma.serviceBlueprint.findFirst({
@@ -556,11 +569,11 @@ export async function moveBlueprintUp(blueprintId: string) {
 }
 
 export async function moveBlueprintDown(blueprintId: string) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     select: { projectId: true, sortOrder: true },
   });
-
   if (!blueprint) return;
 
   const below = await prisma.serviceBlueprint.findFirst({
@@ -592,11 +605,11 @@ export async function moveBlueprintDown(blueprintId: string) {
 // ============================================
 
 export async function createBlankPhase(blueprintId: string) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     select: { projectId: true, phases: { select: { order: true } } },
   });
-
   if (!blueprint) return null;
 
   const maxOrder = blueprint.phases.length > 0
@@ -629,6 +642,7 @@ export async function insertPhaseAt(
   referencePhaseId: string,
   position: "before" | "after"
 ) {
+  await requireBlueprintAccess(blueprintId);
   const blueprint = await prisma.serviceBlueprint.findUnique({
     where: { id: blueprintId },
     include: {
@@ -2072,4 +2086,315 @@ export async function deleteConnection(connectionId: string) {
   });
 
   revalidatePath(`/projects/${connection.blueprint.projectId}/blueprints/${connection.blueprint.id}`);
+}
+
+// ============================================
+// BULK SYNC (for local cache)
+// ============================================
+
+export async function syncBlueprint(blueprintId: string, payload: BlueprintSyncPayload) {
+  await requireBlueprintAccess(blueprintId);
+  const blueprint = await prisma.serviceBlueprint.findUnique({
+    where: { id: blueprintId },
+    select: { projectId: true },
+  });
+  if (!blueprint) throw new Error("Blueprint not found");
+
+  const connectionIds = new Set(payload.connections.map((c) => c.id));
+  const phaseIds = new Set(payload.phases.map((p) => p.id));
+  const teamIds = new Set(payload.teams.map((t) => t.id));
+  const softwareIds = new Set(payload.softwareServices.map((s) => s.id));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.serviceBlueprint.update({
+      where: { id: blueprintId },
+      data: { name: payload.name.trim() || "Untitled Blueprint" },
+    });
+
+    await tx.blueprintConnection.deleteMany({
+      where: {
+        blueprintId,
+        id: { notIn: [...connectionIds] },
+      },
+    });
+
+    const existingPhases = await tx.blueprintPhase.findMany({
+      where: { blueprintId },
+      select: { id: true },
+    });
+    const toDeletePhaseIds = existingPhases.filter((p) => !phaseIds.has(p.id)).map((p) => p.id);
+    if (toDeletePhaseIds.length > 0) {
+      await tx.blueprintPhase.deleteMany({
+        where: { id: { in: toDeletePhaseIds } },
+      });
+    }
+
+    for (const t of payload.teams) {
+      await tx.blueprintTeam.upsert({
+        where: { id: t.id },
+        create: {
+          id: t.id,
+          name: t.name.trim() || "Team",
+          iconName: t.iconName || "group",
+          colorHex: t.colorHex || "#6366f1",
+          blueprintId,
+        },
+        update: {
+          name: t.name.trim() || "Team",
+          iconName: t.iconName || "group",
+          colorHex: t.colorHex || "#6366f1",
+        },
+      });
+    }
+    const existingTeams = await tx.blueprintTeam.findMany({
+      where: { blueprintId },
+      select: { id: true },
+    });
+    const toDeleteTeamIds = existingTeams.filter((x) => !teamIds.has(x.id)).map((x) => x.id);
+    if (toDeleteTeamIds.length > 0) {
+      await tx.blueprintTeam.deleteMany({
+        where: { id: { in: toDeleteTeamIds } },
+      });
+    }
+
+    for (const s of payload.softwareServices) {
+      await tx.softwareService.upsert({
+        where: { id: s.id },
+        create: {
+          id: s.id,
+          label: s.label.trim() || "Software",
+          colorHex: s.colorHex || "#cbd5e1",
+          blueprintId,
+        },
+        update: {
+          label: s.label.trim() || "Software",
+          colorHex: s.colorHex || "#cbd5e1",
+        },
+      });
+    }
+    const existingSoftware = await tx.softwareService.findMany({
+      where: { blueprintId },
+      select: { id: true },
+    });
+    const toDeleteSoftwareIds = existingSoftware.filter((x) => !softwareIds.has(x.id)).map((x) => x.id);
+    if (toDeleteSoftwareIds.length > 0) {
+      await tx.softwareService.deleteMany({
+        where: { id: { in: toDeleteSoftwareIds } },
+      });
+    }
+
+    for (const p of payload.phases) {
+      await tx.blueprintPhase.upsert({
+        where: { id: p.id },
+        create: {
+          id: p.id,
+          order: p.order,
+          title: p.title.trim() || "Untitled",
+          timeframe: p.timeframe?.trim() || null,
+          blueprintId,
+        },
+        update: {
+          order: p.order,
+          title: p.title.trim() || "Untitled",
+          timeframe: p.timeframe?.trim() || null,
+        },
+      });
+
+      const columnIds = new Set(p.columns.map((c) => c.id));
+      const existingColumns = await tx.blueprintColumn.findMany({
+        where: { phaseId: p.id },
+        select: { id: true },
+      });
+      const toDeleteColumnIds = existingColumns.filter((c) => !columnIds.has(c.id)).map((c) => c.id);
+      if (toDeleteColumnIds.length > 0) {
+        await tx.blueprintColumn.deleteMany({
+          where: { id: { in: toDeleteColumnIds } },
+        });
+      }
+
+      for (const col of p.columns) {
+        await tx.blueprintColumn.upsert({
+          where: { id: col.id },
+          create: {
+            id: col.id,
+            order: col.order,
+            phaseId: p.id,
+            blueprintId,
+          },
+          update: { order: col.order },
+        });
+
+        for (const card of col.basicCards) {
+          await tx.blueprintBasicCard.upsert({
+            where: { id: card.id },
+            create: {
+              id: card.id,
+              order: card.order,
+              laneType: card.laneType,
+              title: card.title?.trim() || "Untitled",
+              description: card.description?.trim() || null,
+              painPoints: card.painPoints ?? null,
+              isStart: card.isStart ?? false,
+              isEnd: card.isEnd ?? false,
+              columnId: col.id,
+            },
+            update: {
+              order: card.order,
+              laneType: card.laneType,
+              title: card.title?.trim() || "Untitled",
+              description: card.description?.trim() || null,
+              painPoints: card.painPoints ?? null,
+              isStart: card.isStart ?? false,
+              isEnd: card.isEnd ?? false,
+            },
+          });
+        }
+        const existingBasic = await tx.blueprintBasicCard.findMany({
+          where: { columnId: col.id },
+          select: { id: true },
+        });
+        const basicIds = new Set(col.basicCards.map((c) => c.id));
+        const toDeleteBasic = existingBasic.filter((c) => !basicIds.has(c.id)).map((c) => c.id);
+        if (toDeleteBasic.length > 0) {
+          await tx.blueprintBasicCard.deleteMany({
+            where: { id: { in: toDeleteBasic } },
+          });
+        }
+
+        for (const card of col.decisionCards) {
+          await tx.blueprintDecisionCard.upsert({
+            where: { id: card.id },
+            create: {
+              id: card.id,
+              order: card.order,
+              laneType: card.laneType,
+              title: card.title?.trim() || "Untitled",
+              question: card.question?.trim() || "?",
+              description: card.description?.trim() || null,
+              isStart: card.isStart ?? false,
+              isEnd: card.isEnd ?? false,
+              columnId: col.id,
+              blueprintId,
+            },
+            update: {
+              order: card.order,
+              laneType: card.laneType,
+              title: card.title?.trim() || "Untitled",
+              question: card.question?.trim() || "?",
+              description: card.description?.trim() || null,
+              isStart: card.isStart ?? false,
+              isEnd: card.isEnd ?? false,
+            },
+          });
+        }
+        const existingDecision = await tx.blueprintDecisionCard.findMany({
+          where: { columnId: col.id },
+          select: { id: true },
+        });
+        const decisionIds = new Set(col.decisionCards.map((c) => c.id));
+        const toDeleteDecision = existingDecision.filter((c) => !decisionIds.has(c.id)).map((c) => c.id);
+        if (toDeleteDecision.length > 0) {
+          await tx.blueprintDecisionCard.deleteMany({
+            where: { id: { in: toDeleteDecision } },
+          });
+        }
+
+        for (const ts of col.teamSections) {
+          await tx.teamSection.upsert({
+            where: { id: ts.id },
+            create: {
+              id: ts.id,
+              order: ts.order,
+              laneType: ts.laneType,
+              teamId: ts.teamId,
+              columnId: col.id,
+              blueprintId,
+            },
+            update: {
+              order: ts.order,
+              laneType: ts.laneType,
+              teamId: ts.teamId,
+            },
+          });
+          for (const c of ts.cards) {
+            await tx.blueprintComplexCard.upsert({
+              where: { id: c.id },
+              create: {
+                id: c.id,
+                order: c.order,
+                title: c.title?.trim() || "Untitled",
+                description: c.description?.trim() || null,
+                painPoints: c.painPoints ?? null,
+                softwareIds: c.softwareIds ?? null,
+                isStart: c.isStart ?? false,
+                isEnd: c.isEnd ?? false,
+                teamSectionId: ts.id,
+              },
+              update: {
+                order: c.order,
+                title: c.title?.trim() || "Untitled",
+                description: c.description?.trim() || null,
+                painPoints: c.painPoints ?? null,
+                softwareIds: c.softwareIds ?? null,
+                isStart: c.isStart ?? false,
+                isEnd: c.isEnd ?? false,
+              },
+            });
+          }
+          const existingComplex = await tx.blueprintComplexCard.findMany({
+            where: { teamSectionId: ts.id },
+            select: { id: true },
+          });
+          const complexIds = new Set(ts.cards.map((c) => c.id));
+          const toDeleteComplex = existingComplex.filter((x) => !complexIds.has(x.id)).map((x) => x.id);
+          if (toDeleteComplex.length > 0) {
+            await tx.blueprintComplexCard.deleteMany({
+              where: { id: { in: toDeleteComplex } },
+            });
+          }
+        }
+        const existingSections = await tx.teamSection.findMany({
+          where: { columnId: col.id },
+          select: { id: true },
+        });
+        const sectionIds = new Set(col.teamSections.map((s) => s.id));
+        const toDeleteSections = existingSections.filter((s) => !sectionIds.has(s.id)).map((s) => s.id);
+        if (toDeleteSections.length > 0) {
+          await tx.teamSection.deleteMany({
+            where: { id: { in: toDeleteSections } },
+          });
+        }
+      }
+    }
+
+    for (const c of payload.connections) {
+      await tx.blueprintConnection.upsert({
+        where: { id: c.id },
+        create: {
+          id: c.id,
+          blueprintId,
+          sourceCardId: c.sourceCardId,
+          sourceCardType: c.sourceCardType,
+          targetCardId: c.targetCardId,
+          targetCardType: c.targetCardType,
+          connectorType: c.connectorType || "standard",
+          label: c.label?.trim() || null,
+          arrowDirection: c.arrowDirection || "forward",
+          strokeWeight: c.strokeWeight || "normal",
+          strokePattern: c.strokePattern || "solid",
+          strokeColor: c.strokeColor || "grey",
+        },
+        update: {
+          connectorType: c.connectorType || "standard",
+          label: c.label?.trim() || null,
+          arrowDirection: c.arrowDirection || "forward",
+          strokeWeight: c.strokeWeight || "normal",
+          strokePattern: c.strokePattern || "solid",
+          strokeColor: c.strokeColor || "grey",
+        },
+      });
+    }
+  });
+
+  revalidatePath(`/projects/${blueprint.projectId}/blueprints/${blueprintId}`);
 }

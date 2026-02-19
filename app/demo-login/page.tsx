@@ -19,7 +19,8 @@ export default function DemoLoginPage() {
     try {
       const result = await loginDemo(password);
       if (result.success) {
-        router.push(from);
+        const loginUrl = from && from !== "/login" ? `/login?from=${encodeURIComponent(from)}` : "/login";
+        router.push(loginUrl);
         router.refresh();
       } else {
         setError(result.error || "Invalid password");

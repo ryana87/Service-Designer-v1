@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { prisma } from "@/app/lib/db";
+import { decodeUserSession, DEMO_USER_SESSION_COOKIE } from "@/app/lib/demoAuth";
 import archiver from "archiver";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -61,16 +62,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify project exists
     const project = await prisma.project.findUnique({
       where: { id: projectId },
+      select: { id: true, ownerId: true },
     });
-
     if (!project) {
       return NextResponse.json(
         { error: "Project not found" },
         { status: 404 }
       );
+    }
+    const password = process.env.DEMO_ACCESS_PASSWORD;
+    if (password) {
+      const sessionCookie = request.cookies.get(DEMO_USER_SESSION_COOKIE)?.value;
+      const decoded = await decodeUserSession(password, sessionCookie);
+      if (!decoded || project.ownerId !== decoded.userId) {
+        return NextResponse.json(
+          { error: "Access denied" },
+          { status: 403 }
+        );
+      }
     }
 
     const browser = await launchBrowser();

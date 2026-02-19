@@ -28,6 +28,19 @@ function computeWatchOuts(painPoints: string, context: string, goals: string) {
   return outs;
 }
 
+export type GuidedPersonaCreated = {
+  id: string;
+  name: string;
+  shortDescription: string | null;
+  role: string | null;
+  context: string | null;
+  goals: string | null;
+  needs: string | null;
+  painPoints: string | null;
+  notes: string | null;
+  avatarUrl: string | null;
+};
+
 export function GuidedPersonaModal({
   projectId,
   isDemo = false,
@@ -37,7 +50,7 @@ export function GuidedPersonaModal({
   projectId: string;
   isDemo?: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated?: (persona: GuidedPersonaCreated | null) => void;
 }) {
   const [idx, setIdx] = useState(0);
   const [values, setValues] = useState<Record<StepKey, string>>({
@@ -79,7 +92,7 @@ export function GuidedPersonaModal({
     setIsSaving(true);
     try {
       const notes = `Watch-outs:\n- ${watchOuts.join("\n- ")}`;
-      await createPersona(projectId, {
+      const created = await createPersona(projectId, {
         name: values.name.trim() || "Untitled Persona",
         role: values.role.trim() || null,
         context: values.context.trim() || null,
@@ -88,7 +101,7 @@ export function GuidedPersonaModal({
         painPoints: values.painPoints.trim() || null,
         notes,
       });
-      onCreated();
+      onCreated?.(created ? { id: created.id, name: created.name, shortDescription: created.shortDescription, role: created.role, context: created.context, goals: created.goals, needs: created.needs, painPoints: created.painPoints, notes: created.notes, avatarUrl: created.avatarUrl } : null);
       onClose();
     } finally {
       setIsSaving(false);

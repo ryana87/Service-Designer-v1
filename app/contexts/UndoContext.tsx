@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 type UndoEntry = {
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  /** When true, do not call router.refresh() after undo/redo (e.g. cache-backed flows). */
+  skipRefresh?: boolean;
 };
 
 type UndoContextType = {
@@ -41,7 +43,7 @@ export function UndoProvider({ children }: { children: React.ReactNode }) {
     setIsRunning(true);
     try {
       await entry.undo();
-      router.refresh();
+      if (!entry.skipRefresh) router.refresh();
     } finally {
       setIsRunning(false);
     }
@@ -55,7 +57,7 @@ export function UndoProvider({ children }: { children: React.ReactNode }) {
     setIsRunning(true);
     try {
       await entry.redo();
-      router.refresh();
+      if (!entry.skipRefresh) router.refresh();
     } finally {
       setIsRunning(false);
     }

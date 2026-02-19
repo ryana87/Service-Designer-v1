@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { DEMO_ACCESS_COOKIE, computeDemoAccessToken } from "./app/lib/demoAuth";
+import {
+  DEMO_ACCESS_COOKIE,
+  DEMO_USER_SESSION_COOKIE,
+  computeDemoAccessToken,
+  decodeUserSession,
+} from "./app/lib/demoAuth";
 
 // Skip password gate when DEMO_ACCESS_PASSWORD is not set (local dev)
 function isPasswordGateEnabled(): boolean {
@@ -14,7 +19,7 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Allow demo login page and static assets
+  // Allow demo login (first screen) and static assets for everyone
   if (
     pathname === "/demo-login" ||
     pathname.startsWith("/_next") ||
@@ -25,16 +30,36 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const cookieValue = request.cookies.get(DEMO_ACCESS_COOKIE)?.value;
-  const expected = await computeDemoAccessToken(process.env.DEMO_ACCESS_PASSWORD!);
+  const accessCookie = request.cookies.get(DEMO_ACCESS_COOKIE)?.value;
+  const expectedToken = await computeDemoAccessToken(
+    process.env.DEMO_ACCESS_PASSWORD!
+  );
 
-  if (cookieValue === expected) {
+  // No demo_access -> must pass first screen (password gate)
+  if (accessCookie !== expectedToken) {
+    const loginUrl = new URL("/demo-login", request.url);
+    loginUrl.searchParams.set("from", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Has demo_access: allow /login and public share links without user session
+  if (pathname === "/login" || pathname.startsWith("/share/")) {
     return NextResponse.next();
   }
 
-  const loginUrl = new URL("/demo-login", request.url);
-  loginUrl.searchParams.set("from", pathname);
-  return NextResponse.redirect(loginUrl);
+  // For /projects and all other app routes: require user session
+  const sessionCookie = request.cookies.get(DEMO_USER_SESSION_COOKIE)?.value;
+  const decoded = await decodeUserSession(
+    process.env.DEMO_ACCESS_PASSWORD!,
+    sessionCookie
+  );
+  if (!decoded) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("from", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {

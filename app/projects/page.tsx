@@ -1,11 +1,19 @@
 import { prisma } from "../lib/db";
+import { getSession } from "../lib/session";
 import { AppShell } from "../components/AppShell";
+import { ProjectsListCacheProvider } from "./ProjectsListCacheContext";
 import ProjectsPageContent from "./ProjectsPageContent";
 
 export default async function ProjectsPage() {
+  const session = await getSession();
+  if (!session) {
+    return null; // Layout already redirects; avoid double fetch
+  }
+
   let projects;
   try {
     projects = await prisma.project.findMany({
+      where: { ownerId: session.userId },
       orderBy: { updatedAt: "desc" },
       include: {
         _count: {
@@ -29,19 +37,23 @@ export default async function ProjectsPage() {
     );
   }
 
-  const serializedProjects = projects.map((project) => ({
-    id: project.id,
-    name: project.name,
-    description: project.description,
-    createdAt: project.createdAt.toISOString(),
-    updatedAt: project.updatedAt.toISOString(),
-    journeyMapCount: project._count.journeyMaps,
-    blueprintCount: project._count.serviceBlueprints,
-  }));
+  const cacheInitialData = {
+    projects: projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      createdAt: project.createdAt.toISOString(),
+      updatedAt: project.updatedAt.toISOString(),
+      journeyMapCount: project._count.journeyMaps,
+      blueprintCount: project._count.serviceBlueprints,
+    })),
+  };
 
   return (
     <AppShell showAiSidebar={false}>
-      <ProjectsPageContent projects={serializedProjects} />
+      <ProjectsListCacheProvider initialData={cacheInitialData}>
+        <ProjectsPageContent userDisplayName={session.userDisplayName} />
+      </ProjectsListCacheProvider>
     </AppShell>
   );
 }

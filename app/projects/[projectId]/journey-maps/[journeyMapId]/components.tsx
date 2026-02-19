@@ -527,6 +527,7 @@ export function PhaseHeader({
       undo?.pushUndo({
         undo: async () => { cache.updatePhase(phase.id, "title", oldVal); },
         redo: async () => { cache.updatePhase(phase.id, "title", newVal); },
+        skipRefresh: true,
       });
       cache.updatePhase(phase.id, "title", newVal);
     }
@@ -539,6 +540,7 @@ export function PhaseHeader({
       undo?.pushUndo({
         undo: async () => { cache.updatePhase(phase.id, "timeframe", oldVal); },
         redo: async () => { cache.updatePhase(phase.id, "timeframe", newVal); },
+        skipRefresh: true,
       });
       cache.updatePhase(phase.id, "timeframe", newVal);
     }
@@ -789,6 +791,7 @@ export function ActionColumnHeader({
       undo?.pushUndo({
         undo: async () => { cache.updateActionField(action.id, "title", oldVal); },
         redo: async () => { cache.updateActionField(action.id, "title", newVal); },
+        skipRefresh: true,
       });
       cache.updateActionField(action.id, "title", newVal);
     }
@@ -1053,6 +1056,7 @@ export function EditableCell({
       undo?.pushUndo({
         undo: async () => { cache.updateActionField(actionId, field, oldVal); },
         redo: async () => { cache.updateActionField(actionId, field, newVal); },
+        skipRefresh: true,
       });
       cache.updateActionField(actionId, field, newVal);
     }
@@ -1163,6 +1167,7 @@ export function EmotionCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionField(actionId, "emotion", oldValue); },
       redo: async () => { cache.updateActionField(actionId, "emotion", newNum); },
+      skipRefresh: true,
     });
     cache.updateActionField(actionId, "emotion", newNum);
   };
@@ -1228,6 +1233,7 @@ export function ThumbnailCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionField(actionId, "thumbnailUrl", oldVal); },
       redo: async () => { cache.updateActionField(actionId, "thumbnailUrl", url); },
+      skipRefresh: true,
     });
     cache.updateActionField(actionId, "thumbnailUrl", url);
     setShowModal(false);
@@ -1239,6 +1245,7 @@ export function ThumbnailCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionField(actionId, "thumbnailUrl", oldVal); },
       redo: async () => { cache.updateActionField(actionId, "thumbnailUrl", null); },
+      skipRefresh: true,
     });
     cache.updateActionField(actionId, "thumbnailUrl", null);
   };
@@ -1566,6 +1573,7 @@ export function ChannelCell({
           undo?.pushUndo({
             undo: async () => { cache.updateActionField(actionId, "channel", oldVal); },
             redo: async () => { cache.updateActionField(actionId, "channel", label); },
+            skipRefresh: true,
           });
           cache.updateActionField(actionId, "channel", label);
         });
@@ -1579,6 +1587,7 @@ export function ChannelCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionField(actionId, "channel", oldVal); },
       redo: async () => { cache.updateActionField(actionId, "channel", newValue); },
+      skipRefresh: true,
     });
     cache.updateActionField(actionId, "channel", newValue);
   };
@@ -1648,6 +1657,7 @@ export function TouchpointCell({
           undo?.pushUndo({
             undo: async () => { cache.updateActionField(actionId, "touchpoint", oldVal); },
             redo: async () => { cache.updateActionField(actionId, "touchpoint", label); },
+            skipRefresh: true,
           });
           cache.updateActionField(actionId, "touchpoint", label);
         });
@@ -1661,6 +1671,7 @@ export function TouchpointCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionField(actionId, "touchpoint", oldVal); },
       redo: async () => { cache.updateActionField(actionId, "touchpoint", newValue); },
+      skipRefresh: true,
     });
     cache.updateActionField(actionId, "touchpoint", newValue);
   };
@@ -2069,6 +2080,7 @@ export function PainPointCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionPainPoints(actionId, oldPainPoints as PainPoint[]); },
       redo: async () => { cache.updateActionPainPoints(actionId, newPainPoints as PainPoint[]); },
+      skipRefresh: true,
     });
     cache.updateActionPainPoints(actionId, newPainPoints as PainPoint[]);
   };
@@ -2117,6 +2129,7 @@ export function OpportunityCell({
     undo?.pushUndo({
       undo: async () => { cache.updateActionOpportunities(actionId, oldOpportunities as Opportunity[]); },
       redo: async () => { cache.updateActionOpportunities(actionId, newOpportunities as Opportunity[]); },
+      skipRefresh: true,
     });
     cache.updateActionOpportunities(actionId, newOpportunities as Opportunity[]);
   };
@@ -2144,6 +2157,8 @@ export function OpportunityCell({
 // ============================================
 
 import { createPersona } from "../../actions";
+import { useOptionalProjectCache } from "../../ProjectCacheContext";
+import type { ProjectCachePersonaItem } from "../../project-cache-types";
 import { useDemoOptional } from "../../../../demo/DemoContext";
 import { DEMO_PERSONA_PREFILL } from "../../../../demo/demoChatData";
 import Link from "next/link";
@@ -2170,6 +2185,7 @@ export function PersonaSelector({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const cache = useJourneyMapCache();
+  const projectCache = useOptionalProjectCache();
   const demo = useDemoOptional();
   const isDemo = demo?.isDemo ?? false;
 
@@ -2188,8 +2204,11 @@ export function PersonaSelector({
     setIsOpen(false);
   };
 
-  const handlePersonaCreated = (personaId: string) => {
-    cache.updatePersonaId(personaId);
+  const handlePersonaCreated = (persona: ProjectCachePersonaItem | null) => {
+    if (persona) {
+      projectCache?.addPersona(persona);
+      cache.updatePersonaId(persona.id);
+    }
     setShowCreateModal(false);
   };
 
@@ -2322,7 +2341,7 @@ function CreatePersonaModal({
   projectId: string;
   isDemo: boolean;
   onClose: () => void;
-  onCreated: (personaId: string) => void;
+  onCreated: (persona: ProjectCachePersonaItem | null) => void;
 }) {
   // In demo mode: start blank; populate on focus
   const [name, setName] = useState("");
@@ -2389,7 +2408,21 @@ function CreatePersonaModal({
         avatarUrl: avatarUrl || null,
       });
       if (persona) {
-        onCreated(persona.id);
+        const item: ProjectCachePersonaItem = {
+          id: persona.id,
+          name: persona.name,
+          shortDescription: persona.shortDescription,
+          role: persona.role,
+          context: persona.context,
+          goals: persona.goals,
+          needs: persona.needs,
+          painPoints: persona.painPoints,
+          notes: persona.notes,
+          avatarUrl: persona.avatarUrl,
+        };
+        onCreated(item);
+      } else {
+        onCreated(null);
       }
     } finally {
       setIsSaving(false);

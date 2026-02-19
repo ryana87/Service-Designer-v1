@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "../../../lib/db";
+import { requireProjectOwner } from "../../actions";
 
 // ============================================
 // TYPES
@@ -18,14 +19,12 @@ export type Opportunity = {
 };
 
 export async function createJourneyMap(projectId: string, formData: FormData) {
+  await requireProjectOwner(projectId);
   const name = formData.get("name") as string;
   const persona = formData.get("persona") as string | null;
-
   if (!name || name.trim() === "") {
     throw new Error("Journey map name is required");
   }
-
-  // Get max sortOrder for existing maps
   const maxSort = await prisma.journeyMap.aggregate({
     where: { projectId },
     _max: { sortOrder: true },
@@ -55,8 +54,8 @@ export async function updateJourneyMapPersona(
     where: { id: journeyMapId },
     select: { projectId: true },
   });
-
   if (!journeyMap) return null;
+  await requireProjectOwner(journeyMap.projectId);
 
   const updated = await prisma.journeyMap.update({
     where: { id: journeyMapId },
@@ -69,17 +68,17 @@ export async function updateJourneyMapPersona(
 
 // Create blank phase at end WITH a default action
 export async function createBlankPhase(journeyMapId: string) {
-  const maxOrder = await prisma.journeyPhase.aggregate({
-    where: { journeyMapId },
-    _max: { order: true },
-  });
-
-  const nextOrder = (maxOrder._max.order ?? -1) + 1;
-
   const journeyMap = await prisma.journeyMap.findUnique({
     where: { id: journeyMapId },
     select: { projectId: true },
   });
+  if (!journeyMap) return null;
+  await requireProjectOwner(journeyMap.projectId);
+  const maxOrder = await prisma.journeyPhase.aggregate({
+    where: { journeyMapId },
+    _max: { order: true },
+  });
+  const nextOrder = (maxOrder._max.order ?? -1) + 1;
 
   // Create phase with a default action
   const phase = await prisma.journeyPhase.create({
@@ -99,7 +98,7 @@ export async function createBlankPhase(journeyMapId: string) {
     },
   });
 
-  revalidatePath(`/projects/${journeyMap?.projectId}/journey-maps/${journeyMapId}`);
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
   
   // Return the new action ID for focusing
   return { phaseId: phase.id, actionId: phase.actions[0]?.id };
@@ -111,6 +110,12 @@ export async function insertBlankPhaseAt(
   referencePhaseId: string,
   position: "before" | "after"
 ) {
+  const journeyMapForAuth = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+  if (!journeyMapForAuth) return null;
+  await requireProjectOwner(journeyMapForAuth.projectId);
   const referencePhase = await prisma.journeyPhase.findUnique({
     where: { id: referencePhaseId },
     select: { order: true },
@@ -137,7 +142,7 @@ export async function insertBlankPhaseAt(
     where: { id: journeyMapId },
     select: { projectId: true },
   });
-
+  if (!journeyMap) return null;
   // Create phase with a default action
   const phase = await prisma.journeyPhase.create({
     data: {
@@ -156,7 +161,7 @@ export async function insertBlankPhaseAt(
     },
   });
 
-  revalidatePath(`/projects/${journeyMap?.projectId}/journey-maps/${journeyMapId}`);
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
   
   // Return the new action ID for focusing
   return { phaseId: phase.id, actionId: phase.actions[0]?.id };
