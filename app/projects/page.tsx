@@ -38,7 +38,7 @@ export default async function ProjectsPage() {
         console.error("[ProjectsPage] Database error after ensuring ownerId:", retryErr);
         const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
         return (
-          <AppShell showAiSidebar={false}>
+          <AppShell showAiSidebar={false} user={session}>
             <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
               <h1 className="text-lg font-medium text-[var(--text-primary)]">Database Error</h1>
               <p className="max-w-md text-center text-sm text-[var(--text-secondary)]">{msg}</p>
@@ -53,7 +53,7 @@ export default async function ProjectsPage() {
       console.error("[ProjectsPage] Database error:", err);
       const msg = err instanceof Error ? err.message : String(err);
       return (
-        <AppShell showAiSidebar={false}>
+        <AppShell showAiSidebar={false} user={session}>
           <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
             <h1 className="text-lg font-medium text-[var(--text-primary)]">Database Error</h1>
             <p className="max-w-md text-center text-sm text-[var(--text-secondary)]">{msg}</p>
@@ -83,7 +83,7 @@ export default async function ProjectsPage() {
   };
 
   return (
-    <AppShell showAiSidebar={false}>
+    <AppShell showAiSidebar={false} user={session}>
       <ProjectsListCacheProvider initialData={cacheInitialData}>
         <ProjectsPageContent userDisplayName={session.userDisplayName} />
       </ProjectsListCacheProvider>

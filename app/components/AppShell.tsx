@@ -26,6 +26,12 @@ import { useDemoOptional, DEMO_PROJECT_ID } from "../demo/DemoContext";
 import { UI_COPY, ScriptedPrompt } from "../demo/demoChatData";
 import { useTheme } from "../contexts/ThemeContext";
 import { CompareModal } from "./CompareModal";
+import { logout } from "../login/actions";
+
+export type AppShellUser = {
+  userId: string;
+  userDisplayName: string;
+};
 
 // ============================================
 // APP SHELL - Full-screen application layout
@@ -35,12 +41,14 @@ type AppShellProps = {
   children: React.ReactNode;
   projectSidebar?: React.ReactNode;
   showAiSidebar?: boolean;
+  user?: AppShellUser | null;
 };
 
 export function AppShell({
   children,
   projectSidebar,
   showAiSidebar = true,
+  user = null,
 }: AppShellProps) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
@@ -56,6 +64,7 @@ export function AppShell({
           onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           isExpanded={isNavExpanded}
           onToggleExpand={() => setIsNavExpanded(!isNavExpanded)}
+          user={user ?? undefined}
         />
 
         {/* Content area with panels - sits to the right of nav rail */}
@@ -178,18 +187,32 @@ function NavRail({
   onToggleSidebar,
   isExpanded,
   onToggleExpand,
+  user,
 }: {
   hasProjectSidebar: boolean;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   isExpanded: boolean;
   onToggleExpand: () => void;
+  user?: AppShellUser;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const demo = useDemoOptional();
   const isInDemo = demo?.isDemo ?? false;
   const { theme, toggleTheme } = useTheme();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current?.contains(e.target as Node)) return;
+      setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [userMenuOpen]);
 
   const handleDemoClick = async () => {
     if (demo) {
@@ -282,6 +305,62 @@ function NavRail({
 
       {/* Bottom actions */}
       <div className="px-2 pb-3 space-y-1">
+        {/* User menu - same size as other icons, above dark mode */}
+        {user && (
+          <div className="relative" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((o) => !o)}
+              className={`flex h-9 items-center rounded-md text-[var(--text-nav-rail)] transition-colors hover:bg-[var(--bg-nav-rail-hover)] hover:text-[var(--text-nav-rail-active)] ${
+                isExpanded ? "w-full px-3 gap-3" : "w-9 justify-center"
+              }`}
+              aria-expanded={userMenuOpen}
+              aria-haspopup="true"
+              title={!isExpanded ? user.userDisplayName : undefined}
+            >
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] text-[10px] font-medium text-white"
+                aria-hidden
+              >
+                {user.userDisplayName.charAt(0).toUpperCase()}
+              </span>
+              {isExpanded && <span className="text-xs font-medium truncate">{user.userDisplayName}</span>}
+              {isExpanded && <AppIcon name="chevronDown" size="xs" className="text-[var(--text-muted)] shrink-0 ml-auto" />}
+            </button>
+            {userMenuOpen && (
+              <div
+                className="absolute left-0 bottom-full z-50 mb-1 min-w-[180px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] py-1 shadow-lg"
+                role="menu"
+              >
+                <div className="border-b border-[var(--border-subtle)] px-3 py-2">
+                  <p className="text-xs font-medium text-[var(--text-muted)]">
+                    Signed in as {user.userDisplayName}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-muted)] disabled:cursor-not-allowed"
+                  role="menuitem"
+                >
+                  <AppIcon name="settings" size="xs" />
+                  User settings (coming soon)
+                </button>
+                <form action={logout} className="block">
+                  <button
+                    type="submit"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                    role="menuitem"
+                  >
+                    <AppIcon name="logout" size="xs" />
+                    Sign out
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Dark mode toggle */}
         <button
           onClick={toggleTheme}
