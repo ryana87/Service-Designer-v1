@@ -559,3 +559,158 @@ export async function updateActionOpportunities(
     `/projects/${action.phase.journeyMap.projectId}/journey-maps/${action.phase.journeyMap.id}`
   );
 }
+
+// ============================================
+// BULK SYNC (for local cache)
+// ============================================
+
+export type JourneyMapSyncPayload = {
+  name: string;
+  personaId: string | null;
+  phases: Array<{
+    id: string;
+    order: number;
+    title: string;
+    timeframe: string | null;
+    actions: Array<{
+      id: string;
+      order: number;
+      title: string;
+      description: string | null;
+      thought: string | null;
+      channel: string | null;
+      touchpoint: string | null;
+      emotion: number | null;
+      painPoints: string | null;
+      opportunities: string | null;
+      thumbnailUrl: string | null;
+      quotes: Array<{ id: string; quoteText: string; source: string | null }>;
+    }>;
+  }>;
+  customChannels: Array<{ id: string; label: string; iconName: string }>;
+  customTouchpoints: Array<{ id: string; label: string; iconName: string }>;
+};
+
+export async function syncJourneyMap(
+  journeyMapId: string,
+  payload: JourneyMapSyncPayload
+) {
+  const journeyMap = await prisma.journeyMap.findUnique({
+    where: { id: journeyMapId },
+    select: { projectId: true },
+  });
+  if (!journeyMap) throw new Error("Journey map not found");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.journeyMap.update({
+      where: { id: journeyMapId },
+      data: { name: payload.name.trim() || "Untitled", personaId: payload.personaId },
+    });
+
+    const phaseIds = payload.phases.map((p) => p.id);
+    const existingPhases = await tx.journeyPhase.findMany({
+      where: { journeyMapId },
+      select: { id: true },
+    });
+    const toDeletePhaseIds = existingPhases
+      .filter((p) => !phaseIds.includes(p.id))
+      .map((p) => p.id);
+    if (toDeletePhaseIds.length > 0) {
+      await tx.journeyAction.deleteMany({
+        where: { phaseId: { in: toDeletePhaseIds } },
+      });
+      await tx.journeyPhase.deleteMany({
+        where: { id: { in: toDeletePhaseIds } },
+      });
+    }
+
+    for (const p of payload.phases) {
+      await tx.journeyPhase.upsert({
+        where: { id: p.id },
+        create: {
+          id: p.id,
+          order: p.order,
+          title: p.title.trim() || "Untitled",
+          timeframe: p.timeframe?.trim() || null,
+          journeyMapId,
+        },
+        update: {
+          order: p.order,
+          title: p.title.trim() || "Untitled",
+          timeframe: p.timeframe?.trim() || null,
+        },
+      });
+      for (const a of p.actions) {
+        await tx.journeyAction.upsert({
+          where: { id: a.id },
+          create: {
+            id: a.id,
+            order: a.order,
+            title: a.title.trim() || "Untitled",
+            description: a.description?.trim() || null,
+            thought: a.thought?.trim() || null,
+            channel: a.channel?.trim() || null,
+            touchpoint: a.touchpoint?.trim() || null,
+            emotion: a.emotion,
+            painPoints: a.painPoints,
+            opportunities: a.opportunities,
+            thumbnailUrl: a.thumbnailUrl,
+            phaseId: p.id,
+          },
+          update: {
+            order: a.order,
+            title: a.title.trim() || "Untitled",
+            description: a.description?.trim() || null,
+            thought: a.thought?.trim() || null,
+            channel: a.channel?.trim() || null,
+            touchpoint: a.touchpoint?.trim() || null,
+            emotion: a.emotion,
+            painPoints: a.painPoints,
+            opportunities: a.opportunities,
+            thumbnailUrl: a.thumbnailUrl,
+          },
+        });
+        for (const q of a.quotes) {
+          await tx.journeyQuote.upsert({
+            where: { id: q.id },
+            create: {
+              id: q.id,
+              quoteText: q.quoteText.trim(),
+              source: q.source?.trim() || null,
+              actionId: a.id,
+            },
+            update: {
+              quoteText: q.quoteText.trim(),
+              source: q.source?.trim() || null,
+            },
+          });
+        }
+      }
+    }
+
+    await tx.customChannel.deleteMany({ where: { journeyMapId } });
+    await tx.customTouchpoint.deleteMany({ where: { journeyMapId } });
+    if (payload.customChannels.length > 0) {
+      await tx.customChannel.createMany({
+        data: payload.customChannels.map((c) => ({
+          id: c.id,
+          label: c.label,
+          iconName: c.iconName,
+          journeyMapId,
+        })),
+      });
+    }
+    if (payload.customTouchpoints.length > 0) {
+      await tx.customTouchpoint.createMany({
+        data: payload.customTouchpoints.map((t) => ({
+          id: t.id,
+          label: t.label,
+          iconName: t.iconName,
+          journeyMapId,
+        })),
+      });
+    }
+  });
+
+  revalidatePath(`/projects/${journeyMap.projectId}/journey-maps/${journeyMapId}`);
+}

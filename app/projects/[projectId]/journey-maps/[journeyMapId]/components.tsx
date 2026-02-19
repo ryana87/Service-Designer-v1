@@ -9,21 +9,10 @@ import React, {
   useCallback,
 } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import {
-  insertBlankPhaseAt,
-  createBlankPhase,
-  insertBlankActionAt,
-  updatePhase,
-  updateActionField,
-  createQuote,
-  createCustomChannel,
-  createCustomTouchpoint,
-  updateActionPainPoints,
-  deleteAction,
-  duplicateAction,
   type PainPoint,
 } from "../actions";
+import { useJourneyMapCache } from "./JourneyMapCacheContext";
 import { AppIcon } from "../../../../components/Icon";
 import { useUndo } from "../../../../contexts/UndoContext";
 import { useSelectMode } from "../../../../contexts/SelectModeContext";
@@ -89,12 +78,17 @@ function useOverlay() {
   return ctx;
 }
 
+import type { JourneyMapCacheDocument } from "./cache-types";
+import { JourneyMapCacheProvider } from "./JourneyMapCacheContext";
+
 export function OverlayProvider({
   children,
   journeyMapId,
+  cacheInitialData,
 }: {
   children: React.ReactNode;
   journeyMapId: string;
+  cacheInitialData?: JourneyMapCacheDocument | null;
 }) {
   const [overlay, setOverlay] = useState<OverlayState>({ type: "closed" });
 
@@ -127,12 +121,24 @@ export function OverlayProvider({
     setOverlay({ type: "closed" });
   }, []);
 
+  const content = (
+    <>
+      {children}
+      <GlobalOverlay />
+    </>
+  );
+
   return (
     <OverlayContext.Provider
       value={{ overlay, journeyMapId, openQuotes, openCustomOption, closeOverlay }}
     >
-      {children}
-      <GlobalOverlay />
+      {cacheInitialData ? (
+        <JourneyMapCacheProvider initialData={cacheInitialData} journeyMapId={journeyMapId}>
+          {content}
+        </JourneyMapCacheProvider>
+      ) : (
+        content
+      )}
     </OverlayContext.Provider>
   );
 }
@@ -227,6 +233,7 @@ function QuotesPanel({
   };
   onClose: () => void;
 }) {
+  const cache = useJourneyMapCache();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -234,8 +241,12 @@ function QuotesPanel({
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSubmit = async (formData: FormData) => {
-    await createQuote(action.id, formData);
+  const handleSubmit = (formData: FormData) => {
+    const quoteText = formData.get("quoteText") as string;
+    const source = (formData.get("source") as string) || null;
+    if (quoteText?.trim()) {
+      cache.createQuote(action.id, quoteText.trim(), source?.trim() || null);
+    }
     onClose();
   };
 
@@ -475,6 +486,7 @@ export function PhaseHeader({
   isLast = false,
 }: PhaseHeaderProps) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(phase.title);
@@ -497,44 +509,38 @@ export function PhaseHeader({
     }
   }, [isEditing]);
 
-  const handleInsertLeft = async () => {
-    const result = await insertBlankPhaseAt(journeyMapId, phase.id, "before");
-    // Focus will be handled by page refresh - new action will be focused
-    if (result?.actionId) {
-      // Store in sessionStorage for focus after reload
-      sessionStorage.setItem("focusActionId", result.actionId);
-    }
+  const handleInsertLeft = () => {
+    const result = cache.insertBlankPhaseAt(phase.id, "before");
+    if (result?.actionId) sessionStorage.setItem("focusActionId", result.actionId);
   };
 
-  const handleInsertRight = async () => {
-    const result = await insertBlankPhaseAt(journeyMapId, phase.id, "after");
-    if (result?.actionId) {
-      sessionStorage.setItem("focusActionId", result.actionId);
-    }
+  const handleInsertRight = () => {
+    const result = cache.insertBlankPhaseAt(phase.id, "after");
+    if (result?.actionId) sessionStorage.setItem("focusActionId", result.actionId);
   };
 
-  const commitTitle = async () => {
+  const commitTitle = () => {
     setIsEditing(false);
     if (title.trim() !== originalTitle) {
       const newVal = title.trim() || "Untitled";
       const oldVal = originalTitle;
       undo?.pushUndo({
-        undo: () => updatePhase(phase.id, "title", oldVal),
-        redo: () => updatePhase(phase.id, "title", newVal),
+        undo: async () => { cache.updatePhase(phase.id, "title", oldVal); },
+        redo: async () => { cache.updatePhase(phase.id, "title", newVal); },
       });
-      await updatePhase(phase.id, "title", newVal);
+      cache.updatePhase(phase.id, "title", newVal);
     }
   };
 
-  const commitTimeframe = async () => {
+  const commitTimeframe = () => {
     if (timeframe.trim() !== originalTimeframe) {
       const newVal = timeframe.trim();
       const oldVal = originalTimeframe || "";
       undo?.pushUndo({
-        undo: () => updatePhase(phase.id, "timeframe", oldVal),
-        redo: () => updatePhase(phase.id, "timeframe", newVal),
+        undo: async () => { cache.updatePhase(phase.id, "timeframe", oldVal); },
+        redo: async () => { cache.updatePhase(phase.id, "timeframe", newVal); },
       });
-      await updatePhase(phase.id, "timeframe", newVal);
+      cache.updatePhase(phase.id, "timeframe", newVal);
     }
   };
 
@@ -655,11 +661,10 @@ export function PhaseHeader({
 // ============================================
 
 export function AddFirstPhaseCard({ journeyMapId }: { journeyMapId: string }) {
-  const handleCreate = async () => {
-    const result = await createBlankPhase(journeyMapId);
-    if (result?.actionId) {
-      sessionStorage.setItem("focusActionId", result.actionId);
-    }
+  const cache = useJourneyMapCache();
+  const handleCreate = () => {
+    const result = cache.createBlankPhase();
+    if (result?.actionId) sessionStorage.setItem("focusActionId", result.actionId);
   };
 
   return (
@@ -706,6 +711,7 @@ export function ActionColumnHeader({
   index,
 }: ActionColumnHeaderProps) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const commentCtx = useCommentContext();
   const [comments, setComments] = useState<Array<{ id: string; content: string; createdAt: string; positionX: number | null; positionY: number | null; rowKey?: string | null }>>([]);
   const [isHovered, setIsHovered] = useState(false);
@@ -765,30 +771,26 @@ export function ActionColumnHeader({
     }
   }, [isEditing]);
 
-  const handleAddActionLeft = async () => {
-    const result = await insertBlankActionAt(phase.id, action?.id || null, "before");
-    if (result?.actionId) {
-      sessionStorage.setItem("focusActionId", result.actionId);
-    }
+  const handleAddActionLeft = () => {
+    const result = cache.insertBlankActionAt(phase.id, action?.id || null, "before");
+    if (result?.actionId) sessionStorage.setItem("focusActionId", result.actionId);
   };
 
-  const handleAddActionRight = async () => {
-    const result = await insertBlankActionAt(phase.id, action?.id || null, "after");
-    if (result?.actionId) {
-      sessionStorage.setItem("focusActionId", result.actionId);
-    }
+  const handleAddActionRight = () => {
+    const result = cache.insertBlankActionAt(phase.id, action?.id || null, "after");
+    if (result?.actionId) sessionStorage.setItem("focusActionId", result.actionId);
   };
 
-  const commitTitle = async () => {
+  const commitTitle = () => {
     setIsEditing(false);
     if (action && title.trim() !== originalTitle) {
       const newVal = title.trim() || "Untitled";
       const oldVal = originalTitle;
       undo?.pushUndo({
-        undo: () => updateActionField(action.id, "title", oldVal),
-        redo: () => updateActionField(action.id, "title", newVal),
+        undo: async () => { cache.updateActionField(action.id, "title", oldVal); },
+        redo: async () => { cache.updateActionField(action.id, "title", newVal); },
       });
-      await updateActionField(action.id, "title", newVal);
+      cache.updateActionField(action.id, "title", newVal);
     }
   };
 
@@ -909,28 +911,26 @@ type SelectModeToolbarProps = {
 
 export function SelectModeToolbar({ allActionIds }: SelectModeToolbarProps) {
   const ctx = useSelectMode();
-  const router = useRouter();
+  const cache = useJourneyMapCache();
   if (!ctx) return null;
 
   const { isSelectMode, setSelectMode, selectedIds, selectAll, clearSelection } = ctx;
   const count = selectedIds.size;
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     for (const id of selectedIds) {
-      await deleteAction(id);
+      cache.deleteAction(id);
     }
     clearSelection();
     setSelectMode(false);
-    router.refresh();
   };
 
-  const handleBulkDuplicate = async () => {
+  const handleBulkDuplicate = () => {
     for (const id of selectedIds) {
-      await duplicateAction(id);
+      cache.duplicateAction(id);
     }
     clearSelection();
     setSelectMode(false);
-    router.refresh();
   };
 
   return (
@@ -1035,6 +1035,7 @@ export function EditableCell({
   placeholder,
 }: EditableCellProps) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [localValue, setLocalValue] = useState(value || "");
   const [originalValue, setOriginalValue] = useState(value || "");
   const [isFocused, setIsFocused] = useState(false);
@@ -1050,10 +1051,10 @@ export function EditableCell({
       const newVal = localValue.trim() || null;
       const oldVal = originalValue.trim() || null;
       undo?.pushUndo({
-        undo: () => updateActionField(actionId, field, oldVal),
-        redo: () => updateActionField(actionId, field, newVal),
+        undo: async () => { cache.updateActionField(actionId, field, oldVal); },
+        redo: async () => { cache.updateActionField(actionId, field, newVal); },
       });
-      await updateActionField(actionId, field, newVal);
+      cache.updateActionField(actionId, field, newVal);
     }
   };
 
@@ -1147,22 +1148,23 @@ export function EmotionCell({
   value: number | null;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [localValue, setLocalValue] = useState(value?.toString() || "");
 
   useEffect(() => {
     setLocalValue(value?.toString() || "");
   }, [value]);
 
-  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newValue = e.target.value;
     const oldValue = value;
     const newNum = newValue ? parseInt(newValue, 10) : null;
     setLocalValue(newValue);
     undo?.pushUndo({
-      undo: () => updateActionField(actionId, "emotion", oldValue),
-      redo: () => updateActionField(actionId, "emotion", newNum),
+      undo: async () => { cache.updateActionField(actionId, "emotion", oldValue); },
+      redo: async () => { cache.updateActionField(actionId, "emotion", newNum); },
     });
-    await updateActionField(actionId, "emotion", newNum);
+    cache.updateActionField(actionId, "emotion", newNum);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1212,6 +1214,7 @@ export function ThumbnailCell({
   isDemo?: boolean;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [preview, setPreview] = useState<string | null>(value);
   const [showModal, setShowModal] = useState(false);
 
@@ -1219,25 +1222,25 @@ export function ThumbnailCell({
     setPreview(value);
   }, [value]);
 
-  const handleThumbnailSet = async (url: string) => {
+  const handleThumbnailSet = (url: string) => {
     const oldVal = value;
     setPreview(url);
     undo?.pushUndo({
-      undo: () => updateActionField(actionId, "thumbnailUrl", oldVal),
-      redo: () => updateActionField(actionId, "thumbnailUrl", url),
+      undo: async () => { cache.updateActionField(actionId, "thumbnailUrl", oldVal); },
+      redo: async () => { cache.updateActionField(actionId, "thumbnailUrl", url); },
     });
-    await updateActionField(actionId, "thumbnailUrl", url);
+    cache.updateActionField(actionId, "thumbnailUrl", url);
     setShowModal(false);
   };
 
-  const handleRemove = async () => {
+  const handleRemove = () => {
     const oldVal = value;
     setPreview(null);
     undo?.pushUndo({
-      undo: () => updateActionField(actionId, "thumbnailUrl", oldVal),
-      redo: () => updateActionField(actionId, "thumbnailUrl", null),
+      undo: async () => { cache.updateActionField(actionId, "thumbnailUrl", oldVal); },
+      redo: async () => { cache.updateActionField(actionId, "thumbnailUrl", null); },
     });
-    await updateActionField(actionId, "thumbnailUrl", null);
+    cache.updateActionField(actionId, "thumbnailUrl", null);
   };
 
   return (
@@ -1539,6 +1542,7 @@ export function ChannelCell({
   journeyMapId: string;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const { openCustomOption } = useOverlay();
   const [localValue, setLocalValue] = useState(value || "");
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -1549,22 +1553,21 @@ export function ChannelCell({
 
   const currentOption = options.find((o) => o.value === localValue);
 
-  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newValue = e.target.value;
 
     if (newValue === "__custom__") {
-      // Open custom option panel
       const rect = selectRef.current?.getBoundingClientRect();
       if (rect) {
         const oldVal = value || "";
-        openCustomOption("channel", rect, async (label, iconName) => {
-          await createCustomChannel(journeyMapId, label, iconName);
+        openCustomOption("channel", rect, (label, iconName) => {
+          cache.createCustomChannel(label, iconName);
           setLocalValue(label);
           undo?.pushUndo({
-            undo: () => updateActionField(actionId, "channel", oldVal),
-            redo: () => updateActionField(actionId, "channel", label),
+            undo: async () => { cache.updateActionField(actionId, "channel", oldVal); },
+            redo: async () => { cache.updateActionField(actionId, "channel", label); },
           });
-          await updateActionField(actionId, "channel", label);
+          cache.updateActionField(actionId, "channel", label);
         });
       }
       e.target.value = localValue;
@@ -1574,10 +1577,10 @@ export function ChannelCell({
     const oldVal = value || "";
     setLocalValue(newValue);
     undo?.pushUndo({
-      undo: () => updateActionField(actionId, "channel", oldVal),
-      redo: () => updateActionField(actionId, "channel", newValue),
+      undo: async () => { cache.updateActionField(actionId, "channel", oldVal); },
+      redo: async () => { cache.updateActionField(actionId, "channel", newValue); },
     });
-    await updateActionField(actionId, "channel", newValue);
+    cache.updateActionField(actionId, "channel", newValue);
   };
 
   return (
@@ -1621,6 +1624,7 @@ export function TouchpointCell({
   journeyMapId: string;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const { openCustomOption } = useOverlay();
   const [localValue, setLocalValue] = useState(value || "");
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -1631,21 +1635,21 @@ export function TouchpointCell({
 
   const currentOption = options.find((o) => o.value === localValue);
 
-  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newValue = e.target.value;
 
     if (newValue === "__custom__") {
       const rect = selectRef.current?.getBoundingClientRect();
       if (rect) {
         const oldVal = value || "";
-        openCustomOption("touchpoint", rect, async (label, iconName) => {
-          await createCustomTouchpoint(journeyMapId, label, iconName);
+        openCustomOption("touchpoint", rect, (label, iconName) => {
+          cache.createCustomTouchpoint(label, iconName);
           setLocalValue(label);
           undo?.pushUndo({
-            undo: () => updateActionField(actionId, "touchpoint", oldVal),
-            redo: () => updateActionField(actionId, "touchpoint", label),
+            undo: async () => { cache.updateActionField(actionId, "touchpoint", oldVal); },
+            redo: async () => { cache.updateActionField(actionId, "touchpoint", label); },
           });
-          await updateActionField(actionId, "touchpoint", label);
+          cache.updateActionField(actionId, "touchpoint", label);
         });
       }
       e.target.value = localValue;
@@ -1655,10 +1659,10 @@ export function TouchpointCell({
     const oldVal = value || "";
     setLocalValue(newValue);
     undo?.pushUndo({
-      undo: () => updateActionField(actionId, "touchpoint", oldVal),
-      redo: () => updateActionField(actionId, "touchpoint", newValue),
+      undo: async () => { cache.updateActionField(actionId, "touchpoint", oldVal); },
+      redo: async () => { cache.updateActionField(actionId, "touchpoint", newValue); },
     });
-    await updateActionField(actionId, "touchpoint", newValue);
+    cache.updateActionField(actionId, "touchpoint", newValue);
   };
 
   return (
@@ -2052,20 +2056,21 @@ export function PainPointCell({
   value: string | null;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [painPoints, setPainPoints] = useState<SharedPainPoint[]>(parsePainPoints(value));
 
   useEffect(() => {
     setPainPoints(parsePainPoints(value));
   }, [value]);
 
-  const handleUpdate = async (newPainPoints: SharedPainPoint[]) => {
+  const handleUpdate = (newPainPoints: SharedPainPoint[]) => {
     const oldPainPoints = painPoints;
     setPainPoints(newPainPoints);
     undo?.pushUndo({
-      undo: () => updateActionPainPoints(actionId, oldPainPoints as PainPoint[]),
-      redo: () => updateActionPainPoints(actionId, newPainPoints as PainPoint[]),
+      undo: async () => { cache.updateActionPainPoints(actionId, oldPainPoints as PainPoint[]); },
+      redo: async () => { cache.updateActionPainPoints(actionId, newPainPoints as PainPoint[]); },
     });
-    await updateActionPainPoints(actionId, newPainPoints as PainPoint[]);
+    cache.updateActionPainPoints(actionId, newPainPoints as PainPoint[]);
   };
 
   return (
@@ -2086,7 +2091,7 @@ export function PainPointCell({
 
 import { OpportunityEditor, parseOpportunities } from "../../../../components/OpportunityEditor";
 import type { Opportunity as SharedOpportunity } from "../../../../components/OpportunityEditor";
-import { updateActionOpportunities, type Opportunity } from "../actions";
+import { type Opportunity } from "../actions";
 import { DEMO_OPPORTUNITY_SUGGESTIONS } from "../../../../demo/demoChatData";
 
 export function OpportunityCell({
@@ -2099,20 +2104,21 @@ export function OpportunityCell({
   isDemo?: boolean;
 }) {
   const undo = useUndo();
+  const cache = useJourneyMapCache();
   const [opportunities, setOpportunities] = useState<SharedOpportunity[]>(parseOpportunities(value));
 
   useEffect(() => {
     setOpportunities(parseOpportunities(value));
   }, [value]);
 
-  const handleUpdate = async (newOpportunities: SharedOpportunity[]) => {
+  const handleUpdate = (newOpportunities: SharedOpportunity[]) => {
     const oldOpportunities = opportunities;
     setOpportunities(newOpportunities);
     undo?.pushUndo({
-      undo: () => updateActionOpportunities(actionId, oldOpportunities as Opportunity[]),
-      redo: () => updateActionOpportunities(actionId, newOpportunities as Opportunity[]),
+      undo: async () => { cache.updateActionOpportunities(actionId, oldOpportunities as Opportunity[]); },
+      redo: async () => { cache.updateActionOpportunities(actionId, newOpportunities as Opportunity[]); },
     });
-    await updateActionOpportunities(actionId, newOpportunities as Opportunity[]);
+    cache.updateActionOpportunities(actionId, newOpportunities as Opportunity[]);
   };
 
   const handleSuggest = () => {
@@ -2137,7 +2143,6 @@ export function OpportunityCell({
 // PERSONA SELECTOR (Selector-only, no inline editing)
 // ============================================
 
-import { updateJourneyMapPersona } from "../actions";
 import { createPersona } from "../../actions";
 import { useDemoOptional } from "../../../../demo/DemoContext";
 import { DEMO_PERSONA_PREFILL } from "../../../../demo/demoChatData";
@@ -2164,7 +2169,7 @@ export function PersonaSelector({
   const [isOpen, setIsOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
+  const cache = useJourneyMapCache();
   const demo = useDemoOptional();
   const isDemo = demo?.isDemo ?? false;
 
@@ -2178,17 +2183,14 @@ export function PersonaSelector({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelectPersona = async (personaId: string | null) => {
-    await updateJourneyMapPersona(journeyMapId, personaId);
+  const handleSelectPersona = (personaId: string | null) => {
+    cache.updatePersonaId(personaId);
     setIsOpen(false);
-    router.refresh();
   };
 
-  const handlePersonaCreated = async (personaId: string) => {
-    // Auto-select the newly created persona for this journey map
-    await updateJourneyMapPersona(journeyMapId, personaId);
+  const handlePersonaCreated = (personaId: string) => {
+    cache.updatePersonaId(personaId);
     setShowCreateModal(false);
-    router.refresh();
   };
 
   const currentPersona = personas.find(p => p.id === currentPersonaId);

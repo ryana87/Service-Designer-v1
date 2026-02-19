@@ -1,5 +1,7 @@
 # Implementation Plan: Local Cache + Periodic Server Sync for Journey Maps and Service Blueprints
 
+**Status:** Journey map editor is implemented (Phases 1–4). Service blueprint editor still uses per-action server calls; blueprint cache can be added following the same pattern.
+
 ## Goal
 
 Make the journey map and service blueprint editors feel **instant**: user edits apply immediately from a local cache, and the server is updated in the background on a timer (e.g. every 2–5 minutes), on explicit "Save", or when leaving the page. Single-user / single-tab; "last write wins" on sync is acceptable for v1.
