@@ -1,8 +1,24 @@
 import { prisma } from "../lib/db";
 import { getSession } from "../lib/session";
+import {
+  ensureProjectOwnerIdColumn,
+  isMissingColumnError,
+} from "../lib/ensureOwnerIdColumn";
 import { AppShell } from "../components/AppShell";
 import { ProjectsListCacheProvider } from "./ProjectsListCacheContext";
 import ProjectsPageContent from "./ProjectsPageContent";
+
+async function fetchProjects(userId: string) {
+  return prisma.project.findMany({
+    where: { ownerId: userId },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      _count: {
+        select: { journeyMaps: true, serviceBlueprints: true },
+      },
+    },
+  });
+}
 
 export default async function ProjectsPage() {
   const session = await getSession();
@@ -12,29 +28,46 @@ export default async function ProjectsPage() {
 
   let projects;
   try {
-    projects = await prisma.project.findMany({
-      where: { ownerId: session.userId },
-      orderBy: { updatedAt: "desc" },
-      include: {
-        _count: {
-          select: { journeyMaps: true, serviceBlueprints: true },
-        },
-      },
-    });
+    projects = await fetchProjects(session.userId);
   } catch (err) {
-    console.error("[ProjectsPage] Database error:", err);
-    const msg = err instanceof Error ? err.message : String(err);
-    return (
-      <AppShell showAiSidebar={false}>
-        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
-          <h1 className="text-lg font-medium text-[var(--text-primary)]">Database Error</h1>
-          <p className="max-w-md text-center text-sm text-[var(--text-secondary)]">{msg}</p>
-          <p className="text-xs text-[var(--text-muted)]">
-            Ensure DATABASE_URL is set in .env (e.g. file:./dev.db) and run: npx prisma migrate deploy
-          </p>
-        </div>
-      </AppShell>
-    );
+    if (isMissingColumnError(err)) {
+      try {
+        await ensureProjectOwnerIdColumn();
+        projects = await fetchProjects(session.userId);
+      } catch (retryErr) {
+        console.error("[ProjectsPage] Database error after ensuring ownerId:", retryErr);
+        const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        return (
+          <AppShell showAiSidebar={false}>
+            <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
+              <h1 className="text-lg font-medium text-[var(--text-primary)]">Database Error</h1>
+              <p className="max-w-md text-center text-sm text-[var(--text-secondary)]">{msg}</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                Ensure DATABASE_URL is set in .env and run: npx prisma migrate deploy
+              </p>
+            </div>
+          </AppShell>
+        );
+      }
+    } else {
+      console.error("[ProjectsPage] Database error:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      return (
+        <AppShell showAiSidebar={false}>
+          <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
+            <h1 className="text-lg font-medium text-[var(--text-primary)]">Database Error</h1>
+            <p className="max-w-md text-center text-sm text-[var(--text-secondary)]">{msg}</p>
+            <p className="text-xs text-[var(--text-muted)]">
+              Ensure DATABASE_URL is set in .env (e.g. file:./dev.db) and run: npx prisma migrate deploy
+            </p>
+          </div>
+        </AppShell>
+      );
+    }
+  }
+
+  if (!projects) {
+    return null;
   }
 
   const cacheInitialData = {
