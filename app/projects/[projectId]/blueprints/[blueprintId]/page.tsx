@@ -13,7 +13,7 @@ type PageProps = {
 export default async function BlueprintPage({ params }: PageProps) {
   const { projectId, blueprintId } = await params;
 
-  let blueprint: Awaited<ReturnType<typeof prisma.serviceBlueprint.findUnique>>;
+  let blueprint;
   try {
     blueprint = await prisma.serviceBlueprint.findUnique({
       where: { id: blueprintId },
