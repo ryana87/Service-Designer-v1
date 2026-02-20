@@ -12,7 +12,6 @@ type LayoutProps = {
 export default async function ProjectLayout({ params, children }: LayoutProps) {
   const { projectId } = await params;
   const session = await getSession();
-  if (!session) notFound();
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
@@ -45,8 +44,13 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
     },
   });
 
-  if (!project || project.ownerId !== session.userId) {
-    notFound();
+  if (!project) notFound();
+
+  // Only enforce owner when project has an owner set (e.g. after migration/backfill).
+  // When ownerId is null, allow access so production works before/without backfill.
+  if (project.ownerId != null) {
+    if (!session) notFound();
+    if (session.userId !== project.ownerId) notFound();
   }
 
   const journeyMapsWithCounts = project.journeyMaps.map((map) => ({
@@ -89,6 +93,7 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
       painPoints: p.painPoints,
       notes: p.notes,
       avatarUrl: p.avatarUrl,
+      templateId: p.templateId,
     })),
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),

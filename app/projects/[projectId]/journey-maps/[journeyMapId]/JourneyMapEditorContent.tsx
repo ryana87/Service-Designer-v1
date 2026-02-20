@@ -238,7 +238,7 @@ export type JourneyMapEditorContentProps = {
     name: string;
     journeyMaps: Array<{ id: string; name: string }>;
     serviceBlueprints: Array<{ id: string; name: string }>;
-    personas: Array<{ id: string; name: string; shortDescription: string | null; avatarUrl: string | null }>;
+    personas: Array<{ id: string; name: string; shortDescription: string | null; avatarUrl: string | null; templateId: string | null }>;
   };
   isDemo: boolean;
 };

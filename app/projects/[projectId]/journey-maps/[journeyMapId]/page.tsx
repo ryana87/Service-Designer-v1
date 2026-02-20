@@ -88,6 +88,7 @@ export default async function JourneyMapDetailPage({ params }: PageProps) {
                 id: p.id,
                 name: p.name,
                 shortDescription: p.shortDescription,
+                templateId: p.templateId ?? undefined,
               }))}
               currentItemId={journeyMapId}
               currentItemType="journeyMap"
@@ -109,6 +110,7 @@ export default async function JourneyMapDetailPage({ params }: PageProps) {
                     name: p.name,
                     shortDescription: p.shortDescription,
                     avatarUrl: p.avatarUrl ?? null,
+                    templateId: p.templateId ?? null,
                   })),
                 }}
                 isDemo={isDemo}

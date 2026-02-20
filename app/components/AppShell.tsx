@@ -24,7 +24,16 @@ import {
 } from "../projects/[projectId]/blueprints/actions";
 import { useDemoOptional, DEMO_PROJECT_ID } from "../demo/DemoContext";
 import { UI_COPY, ScriptedPrompt } from "../demo/demoChatData";
+import { DEMO_ASSETS } from "../demo/assets";
 import { useTheme } from "../contexts/ThemeContext";
+import { useOptionalProjectCache } from "../projects/[projectId]/ProjectCacheContext";
+import {
+  DEMO_CHAT_ALLOWED_TEMPLATE_ID,
+  getScriptedResponse,
+  ARCHETYPE_OPTIONS,
+  SUGGESTED_CHIPS,
+  type PersonaChatArchetype,
+} from "../lib/persona-chat-scripted";
 import { CompareModal } from "./CompareModal";
 import { logout } from "../login/actions";
 
@@ -409,8 +418,10 @@ function NavRail({
 function AiSidebar({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
   const demo = useDemoOptional();
+  const projectCache = useOptionalProjectCache();
   const isDemo = demo?.isDemo ?? false;
   const isOnDemoProject = pathname?.includes(`/projects/${DEMO_PROJECT_ID}`) ?? false;
+  const personas = projectCache?.data.personas ?? [];
 
   // Sync current view and journey map ID from pathname for demo prompt filtering
   useEffect(() => {
@@ -430,7 +441,7 @@ function AiSidebar({ onClose }: { onClose: () => void }) {
 
   // Show demo chat if in demo mode or on demo project (auto-enters above)
   if ((isDemo || isOnDemoProject) && demo) {
-    return <DemoAiSidebar demo={demo} onClose={onClose} />;
+    return <DemoAiSidebar demo={demo} onClose={onClose} personas={personas} />;
   }
   
   // Non-demo: show "Coming soon" state
@@ -500,72 +511,239 @@ function AiSidebar({ onClose }: { onClose: () => void }) {
 
 type DemoContextType = NonNullable<ReturnType<typeof useDemoOptional>>;
 
-function DemoAiSidebar({ demo, onClose }: { demo: DemoContextType; onClose: () => void }) {
+type SidebarPersona = { id: string; name: string; avatarUrl: string | null; templateId: string | null };
+
+function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType; onClose: () => void; personas?: SidebarPersona[] }) {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const personaMessagesEndRef = useRef<HTMLDivElement>(null);
   const [showToast, setShowToast] = useState(false);
-  
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  const [personaMessages, setPersonaMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [personaArchetype, setPersonaArchetype] = useState<PersonaChatArchetype>("pragmatist");
+  const [personaInput, setPersonaInput] = useState("");
+
+  const selectedPersona = selectedPersonaId ? personas.find((p) => p.id === selectedPersonaId) : null;
+  const isFrontlinePersona = selectedPersona?.templateId === DEMO_CHAT_ALLOWED_TEMPLATE_ID;
+  const headshotUrl = selectedPersona?.avatarUrl || DEMO_ASSETS.personaHeadshot;
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-  
+  const scrollPersonaToBottom = () => {
+    personaMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [demo.chatMessages]);
-  
+  useEffect(() => {
+    scrollPersonaToBottom();
+  }, [personaMessages]);
+
   const handleSend = () => {
     if (!inputValue.trim()) return;
     demo.sendMessage(inputValue.trim());
     setInputValue("");
   };
-  
+
   const handlePromptClick = (promptText: string) => {
     demo.sendMessage(promptText);
     setInputValue("");
   };
-  
+
+  const handlePersonaSend = (text: string) => {
+    if (!text.trim() || !isFrontlinePersona) return;
+    setPersonaMessages((prev) => [...prev, { role: "user", text: text.trim() }]);
+    setPersonaInput("");
+    const response = getScriptedResponse(text.trim(), personaArchetype);
+    setPersonaMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: response ?? "I'm not sure how to answer that in this demo. Try one of the suggested questions above.",
+      },
+    ]);
+  };
+
   const handleGenerate = () => {
     const type = demo.currentView === "blueprint" ? "blueprint" : "journeyMap";
     demo.generateFutureState(type);
     setShowToast(true);
     setTimeout(() => setShowToast(false), 5000);
   };
-  
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (selectedPersonaId) {
+        handlePersonaSend(personaInput);
+      } else {
+        handleSend();
+      }
     }
   };
-  
+
+  const isPersonaMode = selectedPersonaId != null;
+  const gradientBg = isPersonaMode
+    ? "linear-gradient(to bottom, rgb(253 246 227) 0%, rgb(254 251 238) 25%, rgb(255 253 248) 55%, white 100%)"
+    : "linear-gradient(to bottom, rgb(224 242 254) 0%, rgb(255 255 255) 33%, white 33%)";
+
   return (
     <>
     <div
       className="flex min-h-0 flex-1 flex-col"
-      style={{
-        background: "linear-gradient(to bottom, rgb(224 242 254) 0%, rgb(255 255 255) 33%, white 33%)",
-      }}
+      style={{ background: gradientBg }}
     >
       {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border-muted)] px-4">
-        <div className="flex items-center gap-2">
-          <AppIcon name="ai" size="sm" className="text-blue-500" />
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-muted)] px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <AppIcon name="ai" size="sm" className={isPersonaMode ? "text-amber-600" : "text-blue-500"} />
           <span
-            className="font-medium text-[var(--text-primary)]"
+            className="truncate font-medium text-[var(--text-primary)]"
             style={{ fontSize: "var(--font-size-action)" }}
           >
             {UI_COPY.AI_HEADER_DEMO}
           </span>
+          <select
+            value={selectedPersonaId ?? ""}
+            onChange={(e) => setSelectedPersonaId(e.target.value || null)}
+            className="min-w-0 max-w-[140px] truncate rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-2 py-1 text-[var(--text-primary)] outline-none"
+            style={{ fontSize: "var(--font-size-meta)" }}
+          >
+            <option value="">AI Assistant</option>
+            {personas.length > 0 && <option disabled>—</option>}
+            {personas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
         <button
           onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
           title="Close"
         >
           <AppIcon name="close" size="sm" />
         </button>
       </div>
 
+      {isPersonaMode ? (
+        /* Persona chat mode */
+        <>
+          {!isFrontlinePersona ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+              <p className="font-medium text-[var(--text-primary)]" style={{ fontSize: "var(--font-size-cell)" }}>
+                Demo chat not available yet
+              </p>
+              <p className="mt-1 text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-meta)" }}>
+                Scripted chat is only available for the Frontline Service Specialist persona in this demo.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Archetype */}
+              <div className="shrink-0 border-b border-[var(--border-muted)] px-4 py-2">
+                <label className="mb-1 block text-[var(--text-muted)]" style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Archetype</label>
+                <select
+                  value={personaArchetype}
+                  onChange={(e) => setPersonaArchetype(e.target.value as PersonaChatArchetype)}
+                  className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-1.5 text-[var(--text-primary)] outline-none"
+                  style={{ fontSize: "var(--font-size-meta)" }}
+                >
+                  {ARCHETYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Persona messages */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <div className="space-y-3">
+                  {personaMessages.length === 0 && (
+                    <p className="text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-meta)" }}>
+                      Ask about the contact enquiry process. Choose an archetype and tap a suggested question or type your own.
+                    </p>
+                  )}
+                  {personaMessages.map((m, i) => (
+                    <div
+                      key={i}
+                      className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      {m.role === "assistant" && (
+                        <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)]">
+                          <img src={headshotUrl} alt="" className="h-full w-full object-cover" />
+                        </div>
+                      )}
+                      <div
+                        className={`max-w-[85%] rounded-lg px-3 py-2 ${
+                          m.role === "user"
+                            ? "bg-[var(--accent-primary)] text-white"
+                            : "bg-[var(--bg-sidebar)] text-[var(--text-primary)]"
+                        }`}
+                        style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
+                      >
+                        <p style={{ whiteSpace: "pre-wrap" }}>{m.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={personaMessagesEndRef} />
+                </div>
+              </div>
+              {/* Suggested chips */}
+              {SUGGESTED_CHIPS[personaArchetype].length > 0 && (
+                <div className="shrink-0 border-t border-[var(--border-muted)] p-3">
+                  <p className="mb-2 font-medium text-[var(--text-muted)]" style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Suggested questions</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SUGGESTED_CHIPS[personaArchetype].map((chip) => (
+                      <button
+                        key={chip}
+                        onClick={() => handlePersonaSend(chip)}
+                        className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-1.5 text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                        style={{ fontSize: "var(--font-size-meta)" }}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Input */}
+              <div className="shrink-0 border-t border-[var(--border-muted)] p-3">
+                <div className="flex items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2">
+                  <input
+                    type="text"
+                    value={personaInput}
+                    onChange={(e) => setPersonaInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handlePersonaSend(personaInput);
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    className="flex-1 bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                    style={{ fontSize: "var(--font-size-cell)" }}
+                  />
+                  <button
+                    onClick={() => handlePersonaSend(personaInput)}
+                    disabled={!personaInput.trim()}
+                    className={`transition-colors ${
+                      personaInput.trim()
+                        ? "text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]"
+                        : "text-[var(--text-muted)]"
+                    }`}
+                  >
+                    <AppIcon name="send" size="sm" />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        /* AI Assistant mode */
+        <>
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
@@ -658,6 +836,8 @@ function DemoAiSidebar({ demo, onClose }: { demo: DemoContextType; onClose: () =
           </button>
         </div>
       </div>
+        </>
+      )}
     </div>
       
       {/* Toast notification */}
@@ -697,6 +877,7 @@ type PersonaItem = {
   id: string;
   name: string;
   shortDescription: string | null;
+  templateId?: string | null;
 };
 
 type ProjectSidebarProps = {

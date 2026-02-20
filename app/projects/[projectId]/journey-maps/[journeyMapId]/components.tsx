@@ -19,7 +19,7 @@ import { useSelectMode } from "../../../../contexts/SelectModeContext";
 import { useCommentContext } from "../../../../contexts/CommentContext";
 import { FloatingCommentIcon } from "../../../../components/FloatingCommentIcon";
 import type { SelectOption } from "./shared";
-import { getDemoThumbnailForIndex, DEMO_ASSETS } from "../../../../demo/assets";
+import { getDemoThumbnailForIndex } from "../../../../demo/assets";
 
 // Common icons for custom option picker
 const COMMON_ICONS = [
@@ -2156,11 +2156,6 @@ export function OpportunityCell({
 // PERSONA SELECTOR (Selector-only, no inline editing)
 // ============================================
 
-import { createPersona } from "../../actions";
-import { useOptionalProjectCache } from "../../ProjectCacheContext";
-import type { ProjectCachePersonaItem } from "../../project-cache-types";
-import { useDemoOptional } from "../../../../demo/DemoContext";
-import { DEMO_PERSONA_PREFILL } from "../../../../demo/demoChatData";
 import Link from "next/link";
 
 type Persona = {
@@ -2168,6 +2163,7 @@ type Persona = {
   name: string;
   shortDescription: string | null;
   avatarUrl: string | null;
+  templateId: string | null;
 };
 
 export function PersonaSelector({
@@ -2182,12 +2178,8 @@ export function PersonaSelector({
   projectId: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const cache = useJourneyMapCache();
-  const projectCache = useOptionalProjectCache();
-  const demo = useDemoOptional();
-  const isDemo = demo?.isDemo ?? false;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -2204,448 +2196,93 @@ export function PersonaSelector({
     setIsOpen(false);
   };
 
-  const handlePersonaCreated = (persona: ProjectCachePersonaItem | null) => {
-    if (persona) {
-      projectCache?.addPersona(persona);
-      cache.updatePersonaId(persona.id);
-    }
-    setShowCreateModal(false);
-  };
-
   const currentPersona = personas.find(p => p.id === currentPersonaId);
 
   return (
-    <>
-      <div className="relative" ref={dropdownRef}>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-1.5 rounded border border-[var(--border-subtle)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-          style={{ fontSize: "var(--font-size-meta)" }}
-        >
-          <AppIcon name="persona" size="xs" />
-          {currentPersona ? currentPersona.name : "Persona"}
-          <AppIcon name="chevronDown" size="xs" />
-        </button>
-
-        {isOpen && (
-          <div className="absolute right-0 top-full z-50 mt-1 min-w-[220px] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-lg">
-            {personas.length === 0 ? (
-              // Empty state
-              <div className="p-3 text-center">
-                <p className="text-[var(--text-muted)] mb-2" style={{ fontSize: "var(--font-size-meta)" }}>
-                  No personas yet
-                </p>
-                <button
-                  onClick={() => { setIsOpen(false); setShowCreateModal(true); }}
-                  className="flex w-full items-center justify-center gap-1.5 rounded bg-[var(--accent-primary)] px-3 py-1.5 text-white hover:bg-[var(--accent-primary-hover)]"
-                  style={{ fontSize: "var(--font-size-meta)" }}
-                >
-                  <AppIcon name="add" size="xs" />
-                  Create persona
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* None option */}
-                <button
-                  onClick={() => handleSelectPersona(null)}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)] ${
-                    !currentPersonaId ? "bg-[var(--bg-sidebar)]" : ""
-                  }`}
-                  style={{ fontSize: "var(--font-size-meta)" }}
-                >
-                  <span className="text-[var(--text-muted)]">None</span>
-                </button>
-
-                {/* Divider */}
-                <div className="border-t border-[var(--border-muted)]" />
-
-                {/* Existing personas */}
-                <div className="max-h-48 overflow-auto">
-                  {personas.map(persona => (
-                    <button
-                      key={persona.id}
-                      onClick={() => handleSelectPersona(persona.id)}
-                      className={`flex w-full flex-col items-start px-3 py-2 text-left hover:bg-[var(--bg-hover)] ${
-                        persona.id === currentPersonaId ? "bg-[var(--bg-sidebar)]" : ""
-                      }`}
-                    >
-                      <span
-                        className="font-medium text-[var(--text-primary)]"
-                        style={{ fontSize: "var(--font-size-meta)" }}
-                      >
-                        {persona.name}
-                      </span>
-                      {persona.shortDescription && (
-                        <span
-                          className="text-[var(--text-muted)]"
-                          style={{ fontSize: "10px" }}
-                        >
-                          {persona.shortDescription}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Divider */}
-                <div className="border-t border-[var(--border-muted)]" />
-
-                {/* Actions */}
-                <button
-                  onClick={() => { setIsOpen(false); setShowCreateModal(true); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
-                  style={{ fontSize: "var(--font-size-meta)" }}
-                >
-                  <AppIcon name="add" size="xs" />
-                  Create persona
-                </button>
-                <Link
-                  href={`/projects/${projectId}#personas`}
-                  onClick={() => setIsOpen(false)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
-                  style={{ fontSize: "var(--font-size-meta)" }}
-                >
-                  <AppIcon name="settings" size="xs" />
-                  Manage personas
-                </Link>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Create Persona Modal */}
-      {showCreateModal && (
-        <CreatePersonaModal
-          projectId={projectId}
-          isDemo={isDemo}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={handlePersonaCreated}
-        />
-      )}
-    </>
-  );
-}
-
-// ============================================
-// CREATE PERSONA MODAL (with demo prefill)
-// ============================================
-
-function CreatePersonaModal({
-  projectId,
-  isDemo,
-  onClose,
-  onCreated,
-}: {
-  projectId: string;
-  isDemo: boolean;
-  onClose: () => void;
-  onCreated: (persona: ProjectCachePersonaItem | null) => void;
-}) {
-  // In demo mode: start blank; populate on focus
-  const [name, setName] = useState("");
-  const [shortDescription, setShortDescription] = useState("");
-  const [role, setRole] = useState("");
-  const [context, setContext] = useState("");
-  const [goals, setGoals] = useState("");
-  const [needs, setNeeds] = useState("");
-  const [painPoints, setPainPoints] = useState("");
-  const [notes, setNotes] = useState("");
-
-  const demoFocus = (key: keyof typeof DEMO_PERSONA_PREFILL, setter: (v: string) => void, current: string) => {
-    if (!isDemo || current) return;
-    const v = DEMO_PERSONA_PREFILL[key];
-    if (typeof v === "string") setter(v);
-  };
-  const [avatarUrl, setAvatarUrl] = useState("");
-  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [onClose]);
-
-  const handleGenerateHeadshot = async () => {
-    if (!isDemo) return;
-    setIsGeneratingAvatar(true);
-    // Simulate loading (800-1200ms)
-    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
-    setAvatarUrl(DEMO_ASSETS.PERSONA_HEADSHOT);
-    setIsGeneratingAvatar(false);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setAvatarUrl(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!name.trim()) return;
-    setIsSaving(true);
-    
-    try {
-      const persona = await createPersona(projectId, {
-        name: name.trim(),
-        shortDescription: shortDescription.trim() || null,
-        role: role.trim() || null,
-        context: context.trim() || null,
-        goals: goals.trim() || null,
-        needs: needs.trim() || null,
-        painPoints: painPoints.trim() || null,
-        notes: notes.trim() || null,
-        avatarUrl: avatarUrl || null,
-      });
-      if (persona) {
-        const item: ProjectCachePersonaItem = {
-          id: persona.id,
-          name: persona.name,
-          shortDescription: persona.shortDescription,
-          role: persona.role,
-          context: persona.context,
-          goals: persona.goals,
-          needs: persona.needs,
-          painPoints: persona.painPoints,
-          notes: persona.notes,
-          avatarUrl: persona.avatarUrl,
-        };
-        onCreated(item);
-      } else {
-        onCreated(null);
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="w-[600px] max-h-[85vh] overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 rounded border border-[var(--border-subtle)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+        style={{ fontSize: "var(--font-size-meta)" }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
-          <h3 className="font-semibold text-[var(--text-primary)]" style={{ fontSize: "16px" }}>
-            Create Persona
-          </h3>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
-          >
-            <AppIcon name="close" size="sm" />
-          </button>
-        </div>
+        <AppIcon name="persona" size="xs" />
+        {currentPersona ? currentPersona.name : "Persona"}
+        <AppIcon name="chevronDown" size="xs" />
+      </button>
 
-        {/* Body */}
-        <div className="space-y-4 p-5">
-          {/* Avatar section */}
-          <div className="flex items-start gap-4">
-            <div
-              className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)] cursor-pointer border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--accent-primary)]"
-              onClick={() => fileInputRef.current?.click()}
-              title="Click to upload"
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-[var(--text-muted)]">
-                  <AppIcon name="persona" size="lg" />
-                </div>
-              )}
-            </div>
-            <div className="flex-1 space-y-2">
-              <p className="text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-meta)" }}>
-                Click the circle to upload or drag an image
+      {isOpen && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[220px] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-lg">
+          {personas.length === 0 ? (
+            <div className="p-3">
+              <p className="text-[var(--text-muted)] mb-2" style={{ fontSize: "var(--font-size-meta)" }}>
+                No personas in this project.
               </p>
-              <button
-                onClick={handleGenerateHeadshot}
-                disabled={!isDemo || isGeneratingAvatar}
-                className={`flex items-center gap-1.5 rounded px-3 py-1.5 font-medium transition-colors ${
-                  isDemo
-                    ? "bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary-hover)]"
-                    : "bg-[var(--bg-sidebar)] text-[var(--text-muted)] cursor-not-allowed"
-                }`}
-                style={{ fontSize: "var(--font-size-cell)" }}
+              <p className="text-[var(--text-muted)] mb-3 text-xs">
+                Add a persona from the Persona Library on the project overview — then it will appear here to select.
+              </p>
+              <Link
+                href={`/projects/${projectId}#personas`}
+                onClick={() => setIsOpen(false)}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-[var(--accent-primary)] px-3 py-1.5 text-white hover:bg-[var(--accent-primary-hover)]"
+                style={{ fontSize: "var(--font-size-meta)" }}
               >
-                <AppIcon name="ai" size="xs" />
-                {isGeneratingAvatar ? "Generating..." : "Generate headshot"}
-              </button>
-              <p className="text-[var(--text-muted)]" style={{ fontSize: "10px" }}>
-                {isDemo ? "Uses demo placeholder image" : "Coming soon"}
-              </p>
+                <AppIcon name="folder" size="xs" />
+                Go to Persona Library
+              </Link>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-          </div>
-
-          {/* Name (required) */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onFocus={() => demoFocus("name", setName, name)}
-              placeholder={isDemo ? "Click to fill with demo…" : "e.g., Alex"}
-              className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Short Description */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Short descriptor / tagline
-            </label>
-            <input
-              type="text"
-              value={shortDescription}
-              onChange={(e) => setShortDescription(e.target.value)}
-              onFocus={() => demoFocus("shortDescription", setShortDescription, shortDescription)}
-              placeholder={isDemo ? "Click to fill with demo…" : "e.g., Busy customer"}
-              className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Role */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Role / archetype
-            </label>
-            <input
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              onFocus={() => demoFocus("role", setRole, role)}
-              placeholder={isDemo ? "Click to fill with demo…" : "e.g., Time-poor resident"}
-              className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Context */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Context
-            </label>
-            <textarea
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              onFocus={() => demoFocus("context", setContext, context)}
-              placeholder={isDemo ? "Click to fill with demo…" : "Background and situation..."}
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Goals */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Goals
-            </label>
-            <textarea
-              value={goals}
-              onChange={(e) => setGoals(e.target.value)}
-              onFocus={() => demoFocus("goals", setGoals, goals)}
-              placeholder={isDemo ? "Click to fill with demo…" : "What they want to achieve..."}
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Needs */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Needs
-            </label>
-            <textarea
-              value={needs}
-              onChange={(e) => setNeeds(e.target.value)}
-              onFocus={() => demoFocus("needs", setNeeds, needs)}
-              placeholder={isDemo ? "Click to fill with demo…" : "What they require..."}
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Pain Points */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Pain points
-            </label>
-            <textarea
-              value={painPoints}
-              onChange={(e) => setPainPoints(e.target.value)}
-              onFocus={() => demoFocus("painPoints", setPainPoints, painPoints)}
-              placeholder={isDemo ? "Click to fill with demo…" : "Frustrations and challenges..."}
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="mb-1 block text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
-              Notes
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onFocus={() => demoFocus("notes", setNotes, notes)}
-              placeholder={isDemo ? "Click to fill with demo…" : "Additional notes..."}
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              style={{ fontSize: "var(--font-size-cell)" }}
-            />
-          </div>
+          ) : (
+            <>
+              <button
+                onClick={() => handleSelectPersona(null)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)] ${
+                  !currentPersonaId ? "bg-[var(--bg-sidebar)]" : ""
+                }`}
+                style={{ fontSize: "var(--font-size-meta)" }}
+              >
+                <span className="text-[var(--text-muted)]">None</span>
+              </button>
+              <div className="border-t border-[var(--border-muted)]" />
+              <div className="max-h-48 overflow-auto">
+                {personas.map(persona => (
+                  <button
+                    key={persona.id}
+                    onClick={() => handleSelectPersona(persona.id)}
+                    className={`flex w-full flex-col items-start px-3 py-2 text-left hover:bg-[var(--bg-hover)] ${
+                      persona.id === currentPersonaId ? "bg-[var(--bg-sidebar)]" : ""
+                    }`}
+                  >
+                    <span
+                      className="font-medium text-[var(--text-primary)]"
+                      style={{ fontSize: "var(--font-size-meta)" }}
+                    >
+                      {persona.name}
+                    </span>
+                    {persona.shortDescription && (
+                      <span
+                        className="text-[var(--text-muted)]"
+                        style={{ fontSize: "10px" }}
+                      >
+                        {persona.shortDescription}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <div className="border-t border-[var(--border-muted)]" />
+              <Link
+                href={`/projects/${projectId}#personas`}
+                onClick={() => setIsOpen(false)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+                style={{ fontSize: "var(--font-size-meta)" }}
+              >
+                <AppIcon name="settings" size="xs" />
+                Manage personas
+              </Link>
+            </>
+          )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
-            style={{ fontSize: "var(--font-size-cell)" }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim() || isSaving}
-            className="rounded-md bg-[var(--accent-primary)] px-4 py-2 font-medium text-white transition-colors hover:bg-[var(--accent-primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ fontSize: "var(--font-size-cell)" }}
-          >
-            {isSaving ? "Creating..." : "Create Persona"}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
+

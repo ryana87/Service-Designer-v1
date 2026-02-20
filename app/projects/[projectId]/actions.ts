@@ -685,6 +685,7 @@ export async function createPersona(
     painPoints?: string | null;
     notes?: string | null;
     avatarUrl?: string | null;
+    templateId?: string | null;
   }
 ) {
   await requireProjectOwner(projectId);
@@ -699,12 +700,32 @@ export async function createPersona(
       painPoints: data.painPoints || null,
       notes: data.notes || null,
       avatarUrl: data.avatarUrl || null,
+      templateId: data.templateId ?? null,
       projectId,
     },
   });
 
   revalidatePath(`/projects/${projectId}`);
   return persona;
+}
+
+/** Add a persona to the project from a library template. Only way to add personas in v1. */
+export async function addPersonaFromTemplate(projectId: string, templateId: string) {
+  const { getPersonaTemplateById } = await import("../../lib/persona-library");
+  const template = getPersonaTemplateById(templateId);
+  if (!template) return null;
+  return createPersona(projectId, {
+    name: template.name,
+    shortDescription: template.shortDescription || null,
+    role: template.role ?? null,
+    context: template.context ?? null,
+    goals: template.goals ?? null,
+    needs: template.needs ?? null,
+    painPoints: template.painPoints ?? null,
+    notes: template.notes ?? null,
+    avatarUrl: template.avatarUrl ?? null,
+    templateId: template.id,
+  });
 }
 
 export async function updatePersona(

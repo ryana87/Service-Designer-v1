@@ -33,12 +33,13 @@ model Persona {
   name             String
   shortDescription String?      // Short descriptor / tagline
   role             String?      // Role / archetype
-  context          String?      // Context (multi-line)
+  context          String?     // Context (multi-line)
   goals            String?      // Goals (multi-line)
-  needs            String?      // Needs (multi-line)  
+  needs            String?      // Needs (multi-line)
   painPoints       String?      // Pain points (multi-line)
   notes            String?      // Notes (multi-line)
   avatarUrl        String?      // Headshot image URL or Data URL
+  templateId       String?      // PersonaTemplate id when added from library (e.g. pt_frontline_service_specialist)
   projectId        String
   project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   journeyMaps      JourneyMap[]

@@ -33,6 +33,7 @@ export type ProjectCachePersonaItem = {
   painPoints: string | null;
   notes: string | null;
   avatarUrl: string | null;
+  templateId: string | null;
 };
 
 export type ProjectCacheDocument = {

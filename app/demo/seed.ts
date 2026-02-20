@@ -1,21 +1,14 @@
 import { prisma } from "../lib/db";
 import { DEMO_PROJECT_ID, DEMO_PROJECT_NAME, DEMO_PROJECT_DESCRIPTION } from "./constants";
-import { DEMO_ASSETS } from "./assets";
+import { getPersonaTemplateById, PERSONA_TEMPLATE_ID_FRONTLINE } from "../lib/persona-library";
 
 // ============================================
 // SEED DEMO ACTION
 // Idempotent: deletes and recreates demo data on every call
 // ============================================
 
-// Demo persona constants - user must create persona manually
-export const DEMO_PERSONA_ID = "demo_persona_alex";
-export const DEMO_PERSONA_NAME = "Alex";
-export const DEMO_PERSONA_DESCRIPTION = "Busy customer";
-
-// DEMO_PERSONA_PREFILL is exported from demoChatData.ts for client use
-
 export async function seedDemo(): Promise<{ projectId: string }> {
-  // Step 1: Delete existing demo project if it exists
+  // Step 1: Delete existing demo project if it exists (cascades to personas, journey maps, etc.)
   await prisma.project.deleteMany({
     where: { id: DEMO_PROJECT_ID }
   });
@@ -30,8 +23,25 @@ export async function seedDemo(): Promise<{ projectId: string }> {
     }
   });
 
-  // Step 3: NO persona created by default - user must create it via UI
-  // Step 4: NO journey maps or blueprints - user creates them via research upload and guided setup
+  // Step 3: Add Frontline Service Specialist persona from library (for scripted Persona Chat)
+  const frontlineTemplate = getPersonaTemplateById(PERSONA_TEMPLATE_ID_FRONTLINE);
+  if (frontlineTemplate) {
+    await prisma.persona.create({
+      data: {
+        name: frontlineTemplate.name,
+        shortDescription: frontlineTemplate.shortDescription,
+        role: frontlineTemplate.role,
+        context: frontlineTemplate.context,
+        goals: frontlineTemplate.goals,
+        needs: frontlineTemplate.needs,
+        painPoints: frontlineTemplate.painPoints,
+        notes: frontlineTemplate.notes,
+        avatarUrl: frontlineTemplate.avatarUrl,
+        templateId: frontlineTemplate.id,
+        projectId: project.id,
+      },
+    });
+  }
 
   return { projectId: project.id };
 }

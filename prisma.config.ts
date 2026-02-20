@@ -8,7 +8,9 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
   },
+  // Use DIRECT_URL for migrations (avoids pooler hang / "prepared statement already exists").
+  // App runtime uses DATABASE_URL via PrismaClient in app/lib/db.ts.
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });
