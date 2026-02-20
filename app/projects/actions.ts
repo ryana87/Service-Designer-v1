@@ -17,7 +17,9 @@ export async function requireProjectOwner(projectId: string) {
     where: { id: projectId },
     select: { ownerId: true },
   });
-  if (!project || project.ownerId !== session.userId) {
+  if (!project) throw new Error("Project not found or access denied");
+  // When ownerId is null (e.g. demo project), allow any authenticated user (matches layout behavior).
+  if (project.ownerId != null && project.ownerId !== session.userId) {
     throw new Error("Project not found or access denied");
   }
   return session;

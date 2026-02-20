@@ -13,13 +13,13 @@ export async function seedDemo(): Promise<{ projectId: string }> {
     where: { id: DEMO_PROJECT_ID }
   });
 
-  // Step 2: Create demo project (ownerId for user-scoped demo)
+  // Step 2: Create demo project (ownerId null so any logged-in demo user can run actions)
   const project = await prisma.project.create({
     data: {
       id: DEMO_PROJECT_ID,
       name: DEMO_PROJECT_NAME,
       description: DEMO_PROJECT_DESCRIPTION,
-      ownerId: "ryan",
+      ownerId: null,
     }
   });
 
