@@ -119,10 +119,13 @@ export async function createBlueprintFromSpec(projectId: string, spec: Blueprint
 
   const teamByName = new Map(createdTeams.map((t) => [t.name, t]));
 
-  await prisma.$transaction(async (tx) => {
-    for (let phaseIdx = 0; phaseIdx < spec.phases.length; phaseIdx++) {
-      const phaseSpec = spec.phases[phaseIdx];
-      const phase = await tx.blueprintPhase.create({
+  // Long timeout: guided blueprints create many phases/columns/cards in one transaction.
+  const TX_TIMEOUT_MS = 20_000;
+  await prisma.$transaction(
+    async (tx) => {
+      for (let phaseIdx = 0; phaseIdx < spec.phases.length; phaseIdx++) {
+        const phaseSpec = spec.phases[phaseIdx];
+        const phase = await tx.blueprintPhase.create({
         data: {
           order: phaseIdx,
           title: phaseSpec.title?.trim() || `Phase ${phaseIdx + 1}`,
@@ -207,7 +210,9 @@ export async function createBlueprintFromSpec(projectId: string, spec: Blueprint
         }
       }
     }
-  });
+    },
+    { timeout: TX_TIMEOUT_MS }
+  );
 
   // Create connections: customer-action flow + cross-lane (customer→frontstage→backstage)
   await createSequentialConnections(blueprint.id);

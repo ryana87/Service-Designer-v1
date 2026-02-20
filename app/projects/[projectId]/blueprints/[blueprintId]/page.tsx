@@ -4,7 +4,8 @@ import { AppShell, ProjectSidebar } from "../../../../components/AppShell";
 import { SelectModeProvider } from "../../../../contexts/SelectModeContext";
 import { ExportButton } from "../../../../components/ExportButton";
 import { BlueprintEditor } from "./components";
-import { BlueprintCacheProvider, serverBlueprintToCacheDocument } from "./BlueprintCacheContext";
+import { BlueprintCacheProvider } from "./BlueprintCacheContext";
+import { serverBlueprintToCacheDocument } from "./cache-types";
 
 type PageProps = {
   params: Promise<{ projectId: string; blueprintId: string }>;
