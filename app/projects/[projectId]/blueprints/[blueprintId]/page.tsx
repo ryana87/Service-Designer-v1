@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "../../../../lib/db";
+import { getSession } from "../../../../lib/session";
 import { AppShell, ProjectSidebar } from "../../../../components/AppShell";
 import { SelectModeProvider } from "../../../../contexts/SelectModeContext";
 import { ExportButton } from "../../../../components/ExportButton";
@@ -13,6 +14,7 @@ type PageProps = {
 
 export default async function BlueprintPage({ params }: PageProps) {
   const { projectId, blueprintId } = await params;
+  const session = await getSession();
 
   let blueprint;
   try {
@@ -89,6 +91,7 @@ export default async function BlueprintPage({ params }: PageProps) {
   return (
     <SelectModeProvider>
     <AppShell
+      user={session}
       projectSidebar={
         <ProjectSidebar
           projectId={projectId}

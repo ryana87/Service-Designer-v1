@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "../../../../lib/db";
+import { getSession } from "../../../../lib/session";
 import { AppShell, ProjectSidebar } from "../../../../components/AppShell";
 import { ExportButton } from "../../../../components/ExportButton";
 import ShareButton from "../../../../components/ShareButton";
@@ -23,7 +24,8 @@ type PageProps = {
 
 export default async function JourneyMapDetailPage({ params }: PageProps) {
   const { projectId, journeyMapId } = await params;
-  
+  const session = await getSession();
+
   // Check if this is the demo project
   const isDemo = projectId === DEMO_PROJECT_ID;
 
@@ -78,6 +80,7 @@ export default async function JourneyMapDetailPage({ params }: PageProps) {
     <OverlayProvider journeyMapId={journeyMapId} cacheInitialData={initialCache}>
       <SelectModeProvider>
         <AppShell
+          user={session}
           projectSidebar={
             <ProjectSidebar
               projectId={projectId}
