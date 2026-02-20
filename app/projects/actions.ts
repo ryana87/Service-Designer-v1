@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "../lib/db";
 import { getSession } from "../lib/session";
+import { DEMO_PROJECT_ID } from "../demo/constants";
 
 async function requireSession() {
   const session = await getSession();
@@ -18,7 +19,9 @@ export async function requireProjectOwner(projectId: string) {
     select: { ownerId: true },
   });
   if (!project) throw new Error("Project not found or access denied");
-  // When ownerId is null (e.g. demo project), allow any authenticated user (matches layout behavior).
+  // Demo project: any authenticated user can act (works even if project wasn’t re-seeded with ownerId null).
+  if (projectId === DEMO_PROJECT_ID) return session;
+  // When ownerId is null (e.g. other unowned projects), allow any authenticated user.
   if (project.ownerId != null && project.ownerId !== session.userId) {
     throw new Error("Project not found or access denied");
   }

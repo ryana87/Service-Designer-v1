@@ -13,36 +13,42 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
   const { projectId } = await params;
   const session = await getSession();
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    include: {
-      journeyMaps: {
-        include: {
-          personaRef: true,
-          phases: {
-            include: {
-              actions: true,
+  let project;
+  try {
+    project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        journeyMaps: {
+          include: {
+            personaRef: true,
+            phases: {
+              include: {
+                actions: true,
+              },
             },
           },
+          orderBy: { sortOrder: "asc" },
         },
-        orderBy: { sortOrder: "asc" },
-      },
-      serviceBlueprints: {
-        include: {
-          phases: {
-            include: {
-              columns: true,
+        serviceBlueprints: {
+          include: {
+            phases: {
+              include: {
+                columns: true,
+              },
             },
+            connections: true,
           },
-          connections: true,
+          orderBy: { sortOrder: "asc" },
         },
-        orderBy: { sortOrder: "asc" },
+        personas: {
+          orderBy: { name: "asc" },
+        },
       },
-      personas: {
-        orderBy: { name: "asc" },
-      },
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[ProjectLayout] Failed to load project:", projectId, err);
+    throw err;
+  }
 
   if (!project) notFound();
 
