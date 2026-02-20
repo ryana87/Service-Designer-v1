@@ -11,7 +11,7 @@ import { CreateArtifactModal } from "../../components/CreateArtifactModal";
 import { OnboardingWizardModal } from "../../onboarding/OnboardingWizardModal";
 import { ResearchIntakeModal } from "../../onboarding/ResearchIntakeModal";
 import { updateProject, createJourneyMapInProject, createJourneyMapFromSpec, renameJourneyMap, deleteJourneyMap, duplicateJourneyMap, addPersonaFromTemplate, deletePersona } from "./actions";
-import { PERSONA_LIBRARY_SEGMENTS, getPersonaTemplateById } from "../../lib/persona-library";
+import { PERSONA_LIBRARY_SEGMENTS, getPersonaTemplateById, type PersonaTemplate } from "../../lib/persona-library";
 import { createBlueprint, createBlueprintFromSpec, renameBlueprint, deleteBlueprint, duplicateBlueprint } from "./blueprints/actions";
 import { useProjectCache } from "./ProjectCacheContext";
 import { useDemoOptional } from "../../demo/DemoContext";
@@ -994,6 +994,7 @@ function PersonaLibrarySection({
 }) {
   const cache = useProjectCache();
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<PersonaTemplate | null>(null);
 
   const addedTemplateIds = useMemo(
     () => new Set(personas.map((p) => p.templateId).filter(Boolean) as string[]),
@@ -1044,13 +1045,17 @@ function PersonaLibrarySection({
             >
               {segment.name}
             </h4>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {templates.map((t) => {
                 const added = addedTemplateIds.has(t.id);
                 return (
                   <div
                     key={t.id}
-                    className="flex items-start gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedTemplate(t)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedTemplate(t); } }}
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 transition-colors hover:border-[var(--accent-primary)] hover:bg-[var(--bg-hover)]"
                   >
                     <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)]">
                       {t.avatarUrl ? (
@@ -1061,15 +1066,18 @@ function PersonaLibrarySection({
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h5 className="font-medium text-[var(--text-primary)] truncate" style={{ fontSize: "var(--font-size-cell)" }}>
-                        {t.name}
+                    <div className="min-w-0 flex-1 break-words">
+                      <h5 className="font-medium text-[var(--text-primary)]" style={{ fontSize: "var(--font-size-cell)" }}>
+                        {t.personaName}
                       </h5>
-                      <p className="text-[var(--text-muted)] truncate" style={{ fontSize: "var(--font-size-meta)" }}>
+                      <p className="text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>
+                        {t.name}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-meta)" }}>
                         {t.shortDescription}
                       </p>
                       <button
-                        onClick={() => !added && handleAddToProject(t.id)}
+                        onClick={(e) => { e.stopPropagation(); if (!added) handleAddToProject(t.id); }}
                         disabled={added || addingId === t.id}
                         className="mt-2 flex items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60 disabled:cursor-not-allowed"
                         style={{ fontSize: "var(--font-size-meta)" }}
@@ -1096,6 +1104,120 @@ function PersonaLibrarySection({
           </div>
         </div>
       )}
+
+      {selectedTemplate && (
+        <PersonaDetailModal
+          template={selectedTemplate}
+          onClose={() => setSelectedTemplate(null)}
+          onAddToProject={addedTemplateIds.has(selectedTemplate.id) ? undefined : () => handleAddToProject(selectedTemplate.id)}
+          isAdding={addingId === selectedTemplate.id}
+          added={addedTemplateIds.has(selectedTemplate.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PersonaDetailModal({
+  template,
+  onClose,
+  onAddToProject,
+  isAdding,
+  added,
+}: {
+  template: PersonaTemplate;
+  onClose: () => void;
+  onAddToProject?: () => void;
+  isAdding: boolean;
+  added: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="persona-modal-title"
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-4 p-6">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)]">
+            {template.avatarUrl ? (
+              <img src={template.avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-[var(--text-muted)]">
+                <AppIcon name="persona" size="sm" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="persona-modal-title" className="font-semibold text-[var(--text-primary)]" style={{ fontSize: "var(--font-size-action)" }}>
+              {template.personaName}
+            </h2>
+            <p className="text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-cell)" }}>
+              {template.name}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+            aria-label="Close"
+          >
+            <AppIcon name="close" size="sm" />
+          </button>
+        </div>
+        <div className="space-y-4 px-6 pb-6">
+          {template.shortDescription && (
+            <p className="text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-meta)" }}>
+              {template.shortDescription}
+            </p>
+          )}
+          {template.context && (
+            <div>
+              <h4 className="mb-1 font-medium text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>Context</h4>
+              <p className="text-[var(--text-muted)] whitespace-pre-wrap" style={{ fontSize: "var(--font-size-meta)" }}>{template.context}</p>
+            </div>
+          )}
+          {template.goals && (
+            <div>
+              <h4 className="mb-1 font-medium text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>Goals</h4>
+              <p className="text-[var(--text-muted)] whitespace-pre-wrap" style={{ fontSize: "var(--font-size-meta)" }}>{template.goals}</p>
+            </div>
+          )}
+          {template.needs && (
+            <div>
+              <h4 className="mb-1 font-medium text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>Needs</h4>
+              <p className="text-[var(--text-muted)] whitespace-pre-wrap" style={{ fontSize: "var(--font-size-meta)" }}>{template.needs}</p>
+            </div>
+          )}
+          {template.painPoints && (
+            <div>
+              <h4 className="mb-1 font-medium text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>Pain points</h4>
+              <p className="text-[var(--text-muted)] whitespace-pre-wrap" style={{ fontSize: "var(--font-size-meta)" }}>{template.painPoints}</p>
+            </div>
+          )}
+          {template.notes && (
+            <div>
+              <h4 className="mb-1 font-medium text-[var(--text-secondary)]" style={{ fontSize: "var(--font-size-meta)" }}>Notes</h4>
+              <p className="text-[var(--text-muted)] whitespace-pre-wrap" style={{ fontSize: "var(--font-size-meta)" }}>{template.notes}</p>
+            </div>
+          )}
+          {onAddToProject && (
+            <button
+              onClick={onAddToProject}
+              disabled={isAdding || added}
+              className="flex items-center gap-1.5 rounded border border-[var(--accent-primary)] bg-[var(--accent-primary)] px-3 py-2 text-white transition-colors hover:bg-[var(--accent-primary-hover)] disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ fontSize: "var(--font-size-meta)" }}
+            >
+              {isAdding ? "Adding…" : added ? "Added to project" : "Add to project"}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -28,7 +28,7 @@ export async function seedDemo(): Promise<{ projectId: string }> {
   if (frontlineTemplate) {
     await prisma.persona.create({
       data: {
-        name: frontlineTemplate.name,
+        name: frontlineTemplate.personaName ?? frontlineTemplate.name,
         shortDescription: frontlineTemplate.shortDescription,
         role: frontlineTemplate.role,
         context: frontlineTemplate.context,

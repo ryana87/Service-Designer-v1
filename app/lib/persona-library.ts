@@ -7,6 +7,9 @@ export const PERSONA_TEMPLATE_ID_FRONTLINE = "pt_frontline_service_specialist";
 
 export type PersonaTemplate = {
   id: string;
+  /** Display name of the person (e.g. "Sarah Chen") */
+  personaName: string;
+  /** Job role / title */
   name: string;
   shortDescription: string;
   role: string | null;
@@ -36,6 +39,7 @@ export const PERSONA_LIBRARY_SEGMENTS: PersonaLibrarySegment[] = [
 export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   {
     id: PERSONA_TEMPLATE_ID_FRONTLINE,
+    personaName: "Sarah Chen",
     name: "Frontline Service Specialist",
     shortDescription: "Contact centre frontline",
     role: "Frontline Service Specialist",
@@ -49,6 +53,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_operations_coordinator",
+    personaName: "Marcus Webb",
     name: "Operations Coordinator",
     shortDescription: "Coordinates back-office flow",
     role: "Operations Coordinator",
@@ -62,6 +67,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_support_lead",
+    personaName: "Priya Sharma",
     name: "Support Team Lead",
     shortDescription: "Leads support team",
     role: "Support Team Lead",
@@ -75,6 +81,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_customer_success",
+    personaName: "Jordan Taylor",
     name: "Customer Success Manager",
     shortDescription: "Customer success",
     role: "Customer Success Manager",
@@ -88,6 +95,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_sales_rep",
+    personaName: "Alex Rivera",
     name: "Sales Representative",
     shortDescription: "Sales representative",
     role: "Sales Representative",
@@ -101,6 +109,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_onboarding_specialist",
+    personaName: "Sam Foster",
     name: "Onboarding Specialist",
     shortDescription: "Onboarding specialist",
     role: "Onboarding Specialist",
@@ -114,6 +123,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_product_owner",
+    personaName: "Nina Okonkwo",
     name: "Product Owner",
     shortDescription: "Product owner",
     role: "Product Owner",
@@ -127,6 +137,7 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
   },
   {
     id: "pt_service_designer",
+    personaName: "James Park",
     name: "Service Designer",
     shortDescription: "Service designer",
     role: "Service Designer",

@@ -715,7 +715,7 @@ export async function addPersonaFromTemplate(projectId: string, templateId: stri
   const template = getPersonaTemplateById(templateId);
   if (!template) return null;
   return createPersona(projectId, {
-    name: template.name,
+    name: template.personaName ?? template.name,
     shortDescription: template.shortDescription || null,
     role: template.role ?? null,
     context: template.context ?? null,
