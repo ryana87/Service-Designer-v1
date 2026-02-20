@@ -121,7 +121,7 @@ export const BLUEPRINT_TEMPLATES: BlueprintTemplate[] = [
             {
               label: "Assess",
               lanes: {
-                CUSTOMER_ACTION: [{ title: "Wait / respond to questions" }],
+                // No CUSTOMER_ACTION: customer is waiting; implied, no placeholder card
                 FRONTSTAGE_ACTION: [{ title: "Clarify details with customer" }],
                 BACKSTAGE_ACTION: [{ title: "Reproduce issue" }],
                 SUPPORT_PROCESS: [{ title: "Prioritize and assign" }],

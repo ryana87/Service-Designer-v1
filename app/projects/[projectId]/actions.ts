@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "../../lib/db";
 import { requireProjectOwner } from "../actions";
 import type { JourneyMapDraftSpec } from "../../onboarding/types";
+import { buildTraceabilityMatrix, traceabilityToCsv, type TraceabilityRow } from "../../lib/traceability-matrix";
+import {
+  collectPainPointsFromJourneys,
+  findRecurringPainPoints,
+  countManualTriagePattern,
+  findBlueprintSignatures,
+  type ProjectPatternsResult,
+} from "../../lib/pattern-recognition";
 
 // ============================================
 // PROJECT ACTIONS
@@ -770,4 +778,164 @@ export async function deletePersona(personaId: string) {
   });
 
   revalidatePath(`/projects/${persona.projectId}`);
+}
+
+// ============================================
+// TRACEABILITY MATRIX
+// ============================================
+
+export type TraceabilityResult =
+  | { ok: true; rows: TraceabilityRow[]; csv: string }
+  | { ok: false; error: string };
+
+export async function getTraceabilityMatrix(
+  projectId: string,
+  journeyMapId: string,
+  blueprintId: string
+): Promise<TraceabilityResult> {
+  await requireProjectOwner(projectId);
+  const [journeyMap, blueprint] = await Promise.all([
+    prisma.journeyMap.findFirst({
+      where: { id: journeyMapId, projectId },
+      include: {
+        phases: {
+          orderBy: { order: "asc" },
+          include: { actions: { orderBy: { order: "asc" } } },
+        },
+      },
+    }),
+    prisma.serviceBlueprint.findFirst({
+      where: { id: blueprintId, projectId },
+      include: {
+        phases: {
+          orderBy: { order: "asc" },
+          include: {
+            columns: {
+              orderBy: { order: "asc" },
+              include: {
+                basicCards: true,
+                teamSections: { include: { team: true, cards: true } },
+                decisionCards: true,
+              },
+            },
+          },
+        },
+        softwareServices: true,
+      },
+    }),
+  ]);
+
+  if (!journeyMap) return { ok: false, error: "Journey map not found." };
+  if (!blueprint) return { ok: false, error: "Blueprint not found." };
+
+  const journeyForTrace = {
+    phases: journeyMap.phases.map((p) => ({
+      title: p.title,
+      actions: p.actions.map((a) => ({ title: a.title })),
+    })),
+  };
+  const blueprintForTrace = {
+    phases: blueprint.phases.map((p) => ({
+      title: p.title,
+      columns: p.columns.map((col) => ({
+        basicCards: col.basicCards.map((c) => ({ title: c.title, laneType: c.laneType })),
+        teamSections: col.teamSections.map((ts) => ({
+          team: { name: ts.team.name },
+          cards: ts.cards.map((c) => ({ title: c.title, softwareIds: c.softwareIds })),
+        })),
+        decisionCards: col.decisionCards.map((c) => ({ title: c.title })),
+      })),
+    })),
+    softwareServices: blueprint.softwareServices.map((s) => ({ id: s.id, label: s.label })),
+  };
+
+  const rows = buildTraceabilityMatrix(journeyForTrace, blueprintForTrace);
+  const csv = traceabilityToCsv(rows);
+  return { ok: true, rows, csv };
+}
+
+// ============================================
+// PATTERN RECOGNITION
+// ============================================
+
+export async function getProjectPatterns(projectId: string): Promise<ProjectPatternsResult> {
+  await requireProjectOwner(projectId);
+  const [journeyMaps, blueprints] = await Promise.all([
+    prisma.journeyMap.findMany({
+      where: { projectId },
+      include: {
+        phases: {
+          orderBy: { order: "asc" },
+          include: { actions: true },
+        },
+      },
+    }),
+    prisma.serviceBlueprint.findMany({
+      where: { projectId },
+      include: {
+        phases: {
+          orderBy: { order: "asc" },
+          include: {
+            columns: {
+              orderBy: { order: "asc" },
+              include: {
+                decisionCards: true,
+                teamSections: { include: { team: true, cards: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const painItems = collectPainPointsFromJourneys(
+    journeyMaps.map((jm) => ({
+      name: jm.name,
+      phases: jm.phases.map((p) => ({
+        actions: p.actions.map((a) => ({ painPoints: a.painPoints })),
+      })),
+    }))
+  );
+  const recurringPainPoints = findRecurringPainPoints(painItems, 2);
+
+  const { count: manualTriagePatternCount, sources: manualTriageSources } = countManualTriagePattern(
+    journeyMaps.map((jm) => ({
+      name: jm.name,
+      phases: jm.phases.map((p) => ({
+        actions: p.actions.map((a) => ({
+          painPoints: a.painPoints,
+          title: a.title,
+          description: a.description,
+        })),
+      })),
+    })),
+    blueprints.map((bp) => ({
+      name: bp.name,
+      phases: bp.phases.map((p) => ({
+        columns: p.columns.map((col) => ({
+          decisionCards: col.decisionCards.map((d) => ({ title: d.title, question: d.question })),
+        })),
+      })),
+    }))
+  );
+
+  const blueprintSignatures = findBlueprintSignatures(
+    blueprints.map((bp) => ({
+      name: bp.name,
+      phases: bp.phases.map((p) => ({
+        columns: p.columns.map((col) => ({
+          decisionCards: col.decisionCards,
+          teamSections: col.teamSections.map((ts) => ({ teamId: ts.teamId, cards: ts.cards })),
+        })),
+      })),
+    }))
+  );
+
+  return {
+    recurringPainPoints,
+    manualTriagePatternCount,
+    manualTriageSources,
+    blueprintSignatures,
+  };
 }

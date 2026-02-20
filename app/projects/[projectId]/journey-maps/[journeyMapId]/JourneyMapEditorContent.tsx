@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useJourneyMapCache } from "./JourneyMapCacheContext";
 import { CommentableCell } from "../../../../components/CommentableCell";
 import { CommentableGridHandler } from "../../../../components/CommentableGridHandler";
@@ -11,6 +11,8 @@ import { HeaderZoomControls } from "./HeaderZoomControls";
 import { ExportButton } from "../../../../components/ExportButton";
 import { CompletenessButton } from "../../../../components/CompletenessButton";
 import { JourneyMapInsightsControls } from "./InsightsWrapper";
+import { SuggestBlueprintModal } from "./SuggestBlueprintModal";
+import { AppIcon } from "../../../../components/Icon";
 import {
   PhaseHeader,
   ActionColumnHeader,
@@ -24,6 +26,7 @@ import {
   TouchpointCell,
   PainPointCell,
   OpportunityCell,
+  SuggestedTagsCell,
   PersonaSelector,
 } from "./components";
 import { DEFAULT_CHANNEL_OPTIONS, DEFAULT_TOUCHPOINT_OPTIONS } from "./shared";
@@ -36,7 +39,7 @@ const ACTION_COLUMN_WIDTH = 160;
 type RowDef = {
   key: string;
   label: string;
-  type: "text" | "textarea" | "select" | "emotion" | "thumbnail" | "channel" | "touchpoint" | "painPoints" | "opportunities";
+  type: "text" | "textarea" | "select" | "emotion" | "thumbnail" | "channel" | "touchpoint" | "painPoints" | "opportunities" | "suggestedTags";
   placeholder?: string;
 };
 
@@ -52,6 +55,7 @@ const ROWS_BEFORE_TREND: RowDef[] = [
 const ROWS_AFTER_TREND: RowDef[] = [
   { key: "painPoints", label: "Pain Points", type: "painPoints" },
   { key: "opportunities", label: "Opportunities", type: "opportunities" },
+  { key: "suggestedTags", label: "Suggested tags", type: "suggestedTags" },
 ];
 
 type ActionColumn = {
@@ -223,6 +227,18 @@ function DataCell({
       </CommentableCell>
     );
   }
+  if (row.type === "suggestedTags") {
+    return (
+      <CommentableCell actionId={action.id} rowKey={row.key} className={baseClass}>
+        <SuggestedTagsCell
+          actionId={action.id}
+          title={action.title}
+          description={action.description}
+          painPointsValue={action.painPoints}
+        />
+      </CommentableCell>
+    );
+  }
   const value = action[row.key as keyof JourneyMapAction] as string | null;
   return (
     <CommentableCell actionId={action.id} rowKey={row.key} className={baseClass}>
@@ -246,6 +262,7 @@ export type JourneyMapEditorContentProps = {
 export function JourneyMapEditorContent({ projectId, journeyMapId, project, isDemo }: JourneyMapEditorContentProps) {
   const cache = useJourneyMapCache();
   const data = cache.data;
+  const [suggestBlueprintOpen, setSuggestBlueprintOpen] = useState(false);
   if (!data) return null;
 
   const channelOptions: SelectOption[] = [
@@ -324,6 +341,16 @@ export function JourneyMapEditorContent({ projectId, journeyMapId, project, isDe
           <SelectModeToolbar allActionIds={allActionIds} />
           <PersonaSelector journeyMapId={journeyMapId} currentPersonaId={data.personaId} personas={project.personas} projectId={projectId} />
           <InsightsStrip lowestEmotionAction={lowestEmotionAction} highestEmotionAction={highestEmotionAction} totalQuotes={totalQuotes} />
+          {data.phases.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSuggestBlueprintOpen(true)}
+              className="flex items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+            >
+              <AppIcon name="blueprint" size="xs" />
+              Suggest blueprint
+            </button>
+          )}
           <JourneyMapInsightsControls journeyMapData={journeyMapValidationData} />
           <CompletenessButton artifactType="journeyMap" data={journeyMapValidationData} />
           <div className="h-6 w-px bg-[var(--border-subtle)]" />
@@ -349,6 +376,14 @@ export function JourneyMapEditorContent({ projectId, journeyMapId, project, isDe
           />
         </div>
       </header>
+
+      {suggestBlueprintOpen && (
+        <SuggestBlueprintModal
+          projectId={projectId}
+          journeyData={journeyMapValidationData}
+          onClose={() => setSuggestBlueprintOpen(false)}
+        />
+      )}
 
       <JourneyMapCanvasContent>
         {data.phases.length === 0 ? (

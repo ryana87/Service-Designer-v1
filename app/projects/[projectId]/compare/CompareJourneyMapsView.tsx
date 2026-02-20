@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { AppIcon } from "../../../components/Icon";
+import { WhatChangedButtonAndModal } from "./WhatChangedButtonAndModal";
 
 const LABEL_WIDTH = 110;
 const COL_WIDTH = 160;
@@ -70,15 +71,25 @@ export function CompareJourneyMapsView({
         <h1 className="font-medium text-[var(--text-primary)]" style={{ fontSize: "var(--font-size-action)" }}>
           Compare Journey Maps
         </h1>
-        <button
-          onClick={() => setScrollLock(!scrollLock)}
-          className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
-            scrollLock ? "bg-[var(--accent-primary)] text-white" : "bg-[var(--bg-sidebar)] text-[var(--text-muted)]"
-          }`}
-        >
-          <AppIcon name={scrollLock ? "lock" : "lock_open"} size="xs" />
-          {scrollLock ? "Scroll sync on" : "Scroll sync off"}
-        </button>
+        <div className="flex items-center gap-2">
+          <WhatChangedButtonAndModal
+            projectId={projectId}
+            leftId={left.id}
+            rightId={right.id}
+            type="journeyMap"
+            leftLabel={leftLabel}
+            rightLabel={rightLabel}
+          />
+          <button
+            onClick={() => setScrollLock(!scrollLock)}
+            className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+              scrollLock ? "bg-[var(--accent-primary)] text-white" : "bg-[var(--bg-sidebar)] text-[var(--text-muted)]"
+            }`}
+          >
+            <AppIcon name={scrollLock ? "lock" : "lock_open"} size="xs" />
+            {scrollLock ? "Scroll sync on" : "Scroll sync off"}
+          </button>
+        </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border-subtle)]">

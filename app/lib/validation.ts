@@ -203,6 +203,102 @@ export function validateJourneyMap(journeyMap: JourneyMapData): Insight[] {
     }
   });
 
+  // 4. Experience Gap Detection: systemic risks (structured insights, category: content)
+  const normalizeForMatch = (s: string) => s.toLowerCase().trim().replace(/\s+/g, " ");
+  const statusGapPhrases = ["wait for response", "no status", "no update", "no visibility", "waiting", "no progress", "don't know status"];
+  const manualTriagePhrases = ["manual", "triage", "interpret", "figure out what", "decide where", "manually decide", "manual interpretation"];
+
+  allActions.forEach((action) => {
+    const titleDesc = [action.title, action.description].filter(Boolean).join(" ");
+    const norm = normalizeForMatch(titleDesc);
+    const painPoints = parsePainPoints(action.painPoints);
+    const painTexts = painPoints.map((pp) => pp.text).join(" ");
+    const combined = normalizeForMatch(painTexts + " " + norm);
+
+    // Low emotion (1 or 2) + waiting/no update language → No status visibility
+    const hasStatusGapLanguage = statusGapPhrases.some((p) => combined.includes(p));
+    if (hasStatusGapLanguage && action.emotion !== null && action.emotion <= 2) {
+      insights.push({
+        id: `jm-${insightIndex++}`,
+        severity: "warning",
+        message: "No status visibility: low emotion and waiting/update language suggest customers lack progress visibility.",
+        category: "content",
+        elementId: action.id,
+        elementType: "action",
+      });
+    }
+
+    // Manual interpretation / triage language → Manual interpretation step
+    const hasManualTriageLanguage = manualTriagePhrases.some((p) => combined.includes(p));
+    if (hasManualTriageLanguage) {
+      insights.push({
+        id: `jm-${insightIndex++}`,
+        severity: "warning",
+        message: "Manual interpretation step: text suggests staff manually triage or interpret requests.",
+        category: "content",
+        elementId: action.id,
+        elementType: "action",
+      });
+    }
+  });
+
+  // Repetition risk: same pain point text (normalized) across 3+ actions
+  const painTextCounts = new Map<string, { count: number; actionIds: string[] }>();
+  allActions.forEach((action) => {
+    const painPoints = parsePainPoints(action.painPoints);
+    painPoints.forEach((pp) => {
+      const key = normalizeForMatch(pp.text);
+      if (key.length < 10) return;
+      const existing = painTextCounts.get(key);
+      if (!existing) {
+        painTextCounts.set(key, { count: 1, actionIds: [action.id] });
+      } else {
+        existing.count++;
+        if (!existing.actionIds.includes(action.id)) existing.actionIds.push(action.id);
+      }
+    });
+  });
+  painTextCounts.forEach((v, text) => {
+    if (v.count >= 3 && v.actionIds.length >= 3) {
+      insights.push({
+        id: `jm-${insightIndex++}`,
+        severity: "warning",
+        message: `Repetition risk: the same or similar pain point appears in ${v.actionIds.length} steps.`,
+        category: "content",
+        elementId: v.actionIds[0],
+        elementType: "action",
+      });
+    }
+  });
+
+  // Phase with high pain but no opportunity: "Phase X has no clear ownership" (info)
+  journeyMap.phases.forEach((phase) => {
+    const phaseActions = phase.actions;
+    const hasHighPain = phaseActions.some((a) => {
+      const pps = parsePainPoints(a.painPoints);
+      return pps.some((pp) => pp.severity === "HIGH");
+    });
+    const hasAnyOpportunity = phaseActions.some((a) => {
+      if (!a.opportunities) return false;
+      try {
+        const arr = JSON.parse(a.opportunities);
+        return Array.isArray(arr) && arr.length > 0;
+      } catch {
+        return false;
+      }
+    });
+    if (hasHighPain && !hasAnyOpportunity && phaseActions.length > 0) {
+      insights.push({
+        id: `jm-${insightIndex++}`,
+        severity: "info",
+        message: `Phase "${phase.title}" has high pain but no improvement opportunities captured; ownership or next steps may be unclear.`,
+        category: "content",
+        elementId: phase.id,
+        elementType: "phase",
+      });
+    }
+  });
+
   // REMOVED: Emotion continuity checks (per Phase 9.1)
   // REMOVED: Quote-without-emotion checks (per Phase 9.1)
   // REMOVED: Pain points with positive emotion check (per Phase 9.1)
@@ -283,6 +379,24 @@ export function validateBlueprint(blueprint: BlueprintData): Insight[] {
     columnIndex++;
   });
 
+  // Same-column connections: arrows within one column violate implied order (customer → frontstage → backstage)
+  blueprint.connections.forEach((conn) => {
+    const sourceInfo = cardInfo.get(conn.sourceCardId);
+    const targetInfo = cardInfo.get(conn.targetCardId);
+    if (sourceInfo === undefined || targetInfo === undefined) return;
+    if (sourceInfo.columnIndex === targetInfo.columnIndex) {
+      insights.push({
+        id: `bp-${insightIndex++}`,
+        severity: "warning",
+        message:
+          "Connection within the same column: arrows overlap cards. Use column order (customer → frontstage → backstage) for sequence, or add a new column for cross-stage flow.",
+        category: "flow",
+        elementId: conn.id,
+        elementType: "connection",
+      });
+    }
+  });
+
   // 1. Check for empty phases - only warn if content exists to the right
   blueprint.phases.forEach((phase, phaseIndex) => {
     const phaseHasContent = phase.columns.some(columnHasContent);
@@ -312,8 +426,57 @@ export function validateBlueprint(blueprint: BlueprintData): Insight[] {
     }
   });
 
+  // 2b. Phase backstage (Smart Blueprint Validator): every phase with content must have at least one backstage action
+  blueprint.phases.forEach((phase) => {
+    const phaseHasContent = phase.columns.some(columnHasContent);
+    if (!phaseHasContent) return;
+    const hasBackstageInPhase = phase.columns.some((col) =>
+      col.teamSections.some(
+        (s) => s.laneType === "BACKSTAGE_ACTION" && s.cards.length > 0
+      )
+    );
+    if (!hasBackstageInPhase) {
+      insights.push({
+        id: `bp-${insightIndex++}`,
+        severity: "warning",
+        message: `Phase "${phase.title}" has no backstage actions.`,
+        category: "structure",
+        elementId: phase.id,
+        elementType: "phase",
+      });
+    }
+  });
+
   // REMOVED: Missing team ownership validation (per Phase 9.1)
   // REMOVED: Orphan cards validation (per Phase 9.1)
+
+  // Card -> team name for handoff ownership (only for cards in teamSections)
+  const cardToTeamName = new Map<string, string>();
+  allColumns.forEach((column) => {
+    column.teamSections.forEach((section) => {
+      const name = section.team?.name?.trim() ?? "";
+      section.cards.forEach((card) => cardToTeamName.set(card.id, name));
+    });
+  });
+
+  // 2c. Handoff ownership (Smart Blueprint Validator): connections between team cards must have clear owner on both sides
+  blueprint.connections.forEach((conn) => {
+    const sourceTeam = cardToTeamName.get(conn.sourceCardId);
+    const targetTeam = cardToTeamName.get(conn.targetCardId);
+    if (sourceTeam === undefined && targetTeam === undefined) return;
+    if (sourceTeam !== undefined && targetTeam !== undefined) {
+      if (sourceTeam === "" || targetTeam === "") {
+        insights.push({
+          id: `bp-${insightIndex++}`,
+          severity: "warning",
+          message: "Handoff without clear owner: ensure both sides have a team assigned.",
+          category: "flow",
+          elementId: conn.id,
+          elementType: "connection",
+        });
+      }
+    }
+  });
 
   // Build connection maps
   const incomingConnections = new Map<string, string[]>();
@@ -423,44 +586,30 @@ export function validateBlueprint(blueprint: BlueprintData): Insight[] {
   // 6. Loop detection - DISABLED
   // Loops/backward connections are no longer supported, so no validation needed.
 
-  // 7. Decision Card validation (INFO only)
-  // Check for decision cards with fewer than 2 outgoing connectors
+  // 7. Decision Card validation: promote to WARNING when 0 or 1 outgoing (Smart Blueprint Validator - every decision has outcome(s))
   decisionCardIds.forEach(cardId => {
     const info = cardInfo.get(cardId);
     if (!info) return;
 
     const outgoing = outgoingConnections.get(cardId) || [];
-    
+    const labeledOutgoing = blueprint.connections.filter(
+      (c) => c.sourceCardId === cardId && c.label && c.label.trim() !== ""
+    );
+
     if (outgoing.length < 2) {
       insights.push({
         id: `bp-${insightIndex++}`,
-        severity: "info",
-        message: `Decision "${info.title}" has ${outgoing.length === 0 ? "no" : "only one"} outgoing connector. Consider adding multiple paths.`,
+        severity: "warning",
+        message: `Decision "${info.title}" has ${outgoing.length === 0 ? "no" : "only one"} outgoing connector. Add multiple outcomes.`,
         category: "flow",
         elementId: cardId,
         elementType: "card",
       });
-    }
-  });
-
-  // Check for decision card outgoing connections missing labels
-  decisionCardIds.forEach(cardId => {
-    const info = cardInfo.get(cardId);
-    if (!info) return;
-
-    const outgoingConnectionsFromDecision = blueprint.connections.filter(
-      conn => conn.sourceCardId === cardId
-    );
-    
-    const unlabeledConnections = outgoingConnectionsFromDecision.filter(
-      conn => !conn.label || conn.label.trim() === ""
-    );
-
-    if (unlabeledConnections.length > 0 && outgoingConnectionsFromDecision.length >= 2) {
+    } else if (labeledOutgoing.length < 2) {
       insights.push({
         id: `bp-${insightIndex++}`,
-        severity: "info",
-        message: `Decision "${info.title}" has ${unlabeledConnections.length} unlabeled outgoing connector(s). Labels like "Yes"/"No" improve clarity.`,
+        severity: "warning",
+        message: `Decision "${info.title}" has multiple paths but fewer than 2 labeled outcomes. Labels like "Yes"/"No" improve clarity.`,
         category: "flow",
         elementId: cardId,
         elementType: "card",

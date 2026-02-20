@@ -2105,6 +2105,72 @@ import { OpportunityEditor, parseOpportunities } from "../../../../components/Op
 import type { Opportunity as SharedOpportunity } from "../../../../components/OpportunityEditor";
 import { type Opportunity } from "../actions";
 import { DEMO_OPPORTUNITY_SUGGESTIONS } from "../../../../demo/demoChatData";
+import { suggestTags, JOURNEY_STEP_TAGS, TAG_DEFAULT_PAIN_POINT, type JourneyStepTagId } from "../../../../lib/journey-step-tags";
+
+// ============================================
+// SUGGESTED TAGS CELL (auto-tagging from title/description/pain point text)
+// ============================================
+
+export function SuggestedTagsCell({
+  actionId,
+  title,
+  description,
+  painPointsValue,
+}: {
+  actionId: string;
+  title: string | null;
+  description: string | null;
+  painPointsValue: string | null;
+}) {
+  const undo = useUndo();
+  const cache = useJourneyMapCache();
+  const currentPainPoints = parsePainPoints(painPointsValue);
+
+  const textToAnalyze = [
+    title ?? "",
+    description ?? "",
+    ...currentPainPoints.map((p) => p.text),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const suggestedTagIds = suggestTags(textToAnalyze);
+
+  const handleAddTag = (tagId: JourneyStepTagId) => {
+    const def = TAG_DEFAULT_PAIN_POINT[tagId];
+    const newPainPoints = [...currentPainPoints, { text: def.text, severity: def.severity }];
+    undo?.pushUndo({
+      undo: async () => { cache.updateActionPainPoints(actionId, currentPainPoints); },
+      redo: async () => { cache.updateActionPainPoints(actionId, newPainPoints); },
+      skipRefresh: true,
+    });
+    cache.updateActionPainPoints(actionId, newPainPoints);
+  };
+
+  if (suggestedTagIds.length === 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-1" style={{ fontSize: "var(--font-size-meta)" }}>
+        <span className="text-[var(--text-muted)] opacity-50">—</span>
+      </div>
+    );
+  }
+
+  const tagLabels = JOURNEY_STEP_TAGS.filter((t) => suggestedTagIds.includes(t.id));
+  return (
+    <div className="flex flex-wrap items-center gap-1" style={{ fontSize: "var(--font-size-meta)" }}>
+      <span className="mr-1 text-[var(--text-muted)]">Suggested:</span>
+      {tagLabels.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => handleAddTag(t.id)}
+          className="rounded border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-2 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:border-[var(--border-muted)]"
+        >
+          + {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function OpportunityCell({
   actionId,

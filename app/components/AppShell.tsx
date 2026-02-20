@@ -30,10 +30,13 @@ import { useOptionalProjectCache } from "../projects/[projectId]/ProjectCacheCon
 import {
   DEMO_CHAT_ALLOWED_TEMPLATE_ID,
   getScriptedResponse,
+  getWriteBackTypes,
   ARCHETYPE_OPTIONS,
   SUGGESTED_CHIPS,
   type PersonaChatArchetype,
+  type PersonaWriteBackType,
 } from "../lib/persona-chat-scripted";
+import { addPersonaInsightToJourney } from "../projects/[projectId]/journey-maps/actions";
 import { CompareModal } from "./CompareModal";
 import { logout } from "../login/actions";
 
@@ -521,13 +524,70 @@ type SidebarPersona = { id: string; name: string; avatarUrl: string | null; temp
 const THINKING_MS = 700;
 const TYPING_INTERVAL_MS = 28;
 
+function personaSnippet(text: string, maxLen = 120): string {
+  const t = text.trim();
+  const first = t.slice(0, maxLen);
+  const period = first.indexOf(".");
+  return period > 0 ? first.slice(0, period + 1) : first;
+}
+
+function PersonaWriteBackButtons({
+  projectId,
+  journeyMapId,
+  responseText,
+  types,
+}: {
+  projectId: string;
+  journeyMapId: string;
+  responseText: string;
+  types: PersonaWriteBackType[];
+}) {
+  const [adding, setAdding] = useState<PersonaWriteBackType | null>(null);
+  const snippet = personaSnippet(responseText);
+
+  const handleAdd = async (type: "pain_point" | "opportunity") => {
+    setAdding(type);
+    try {
+      await addPersonaInsightToJourney(projectId, journeyMapId, type, snippet);
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  return (
+    <div className="ml-10 flex flex-wrap items-center gap-2" style={{ fontSize: "var(--font-size-meta)" }}>
+      <span className="text-[var(--text-muted)]">Add to journey:</span>
+      {types.includes("pain_point") && (
+        <button
+          type="button"
+          onClick={() => handleAdd("pain_point")}
+          disabled={adding !== null}
+          className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+        >
+          {adding === "pain_point" ? "Adding…" : "Add as pain point"}
+        </button>
+      )}
+      {types.includes("opportunity") && (
+        <button
+          type="button"
+          onClick={() => handleAdd("opportunity")}
+          disabled={adding !== null}
+          className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+        >
+          {adding === "opportunity" ? "Adding…" : "Add as opportunity"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType; onClose: () => void; personas?: SidebarPersona[] }) {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const personaMessagesEndRef = useRef<HTMLDivElement>(null);
   const [showToast, setShowToast] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
-  const [personaMessages, setPersonaMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [personaMessages, setPersonaMessages] = useState<{ role: "user" | "assistant"; text: string; writeBackTypes?: PersonaWriteBackType[] }[]>([]);
   const [personaArchetype, setPersonaArchetype] = useState<PersonaChatArchetype>("pragmatist");
   const [personaInput, setPersonaInput] = useState("");
   // Demo chat: typing animation for last assistant message
@@ -651,7 +711,8 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
   const handlePersonaSend = (text: string) => {
     if (!text.trim() || !isFrontlinePersona) return;
     const response = getScriptedResponse(text.trim(), personaArchetype) ?? "I'm not sure how to answer that in this demo. Try one of the suggested questions above.";
-    setPersonaMessages((prev) => [...prev, { role: "user", text: text.trim() }, { role: "assistant", text: "..." }]);
+    const writeBackTypes = getWriteBackTypes(text.trim());
+    setPersonaMessages((prev) => [...prev, { role: "user", text: text.trim() }, { role: "assistant", text: "...", writeBackTypes }]);
     setPersonaInput("");
     setPersonaTypingState({ fullText: response });
   };
@@ -756,27 +817,36 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
                     </p>
                   )}
                   {personaMessages.map((m, i) => (
-                    <div
-                      key={i}
-                      className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      {m.role === "assistant" && (
-                        <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)]">
-                          <img src={headshotUrl} alt="" className="h-full w-full object-cover" />
-                        </div>
-                      )}
+                    <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                       <div
-                        className={`max-w-[85%] rounded-lg px-3 py-2 ${
-                          m.role === "user"
-                            ? "bg-[var(--accent-primary)] text-white"
-                            : "bg-[var(--bg-sidebar)] text-[var(--text-primary)]"
-                        }`}
-                        style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
+                        className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
                       >
-                        <p style={{ whiteSpace: "pre-wrap" }}>
-                          {m.role === "assistant" && m.text === "..." && personaTypingState ? <ThinkingDots /> : m.text}
-                        </p>
+                        {m.role === "assistant" && (
+                          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[var(--bg-sidebar)]">
+                            <img src={headshotUrl} alt="" className="h-full w-full object-cover" />
+                          </div>
+                        )}
+                        <div
+                          className={`max-w-[85%] rounded-lg px-3 py-2 ${
+                            m.role === "user"
+                              ? "bg-[var(--accent-primary)] text-white"
+                              : "bg-[var(--bg-sidebar)] text-[var(--text-primary)]"
+                          }`}
+                          style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
+                        >
+                          <p style={{ whiteSpace: "pre-wrap" }}>
+                            {m.role === "assistant" && m.text === "..." && personaTypingState ? <ThinkingDots /> : m.text}
+                          </p>
+                        </div>
                       </div>
+                      {m.role === "assistant" && m.writeBackTypes && m.writeBackTypes.length > 0 && m.text !== "..." && demo.currentView === "journeyMap" && demo.currentJourneyMapId && (
+                        <PersonaWriteBackButtons
+                          projectId={DEMO_PROJECT_ID}
+                          journeyMapId={demo.currentJourneyMapId}
+                          responseText={m.text}
+                          types={m.writeBackTypes}
+                        />
+                      )}
                     </div>
                   ))}
                   <div ref={personaMessagesEndRef} />

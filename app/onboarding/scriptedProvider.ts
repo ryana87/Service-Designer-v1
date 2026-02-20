@@ -41,6 +41,11 @@ function titleCaseFallback(s: string, fallback: string) {
   return v || fallback;
 }
 
+/** True when the step is passive (customer waiting); no customer-action card (implied). */
+function isPassiveCustomerStep(title: string): boolean {
+  return /^(wait(\s+for\s+(response|reply|update))?|waiting|no\s+action|—)$/i.test(title?.trim() ?? "");
+}
+
 function buildJourneyMapDraft(a: Record<string, string>): JourneyMapDraftSpec {
   const name = titleCaseFallback(a.name ?? "", "Untitled Journey Map");
   const personaName = a.persona?.trim() || null;
@@ -99,12 +104,13 @@ function buildBlueprintDraft(a: Record<string, string>): BlueprintDraftSpec {
     phaseSteps.push(allSteps.slice(start, end));
   }
 
-  // Sparse lanes: only populate where provided/meaningful
+  // Sparse lanes: only populate where provided/meaningful; no placeholder for customer waiting
   const buildLanesForStep = (label: string, globalStepIdx: number) => {
     const lanes: BlueprintDraftSpec["phases"][number]["steps"][number]["lanes"] = {};
-    lanes.CUSTOMER_ACTION = customer.length
-      ? [{ title: customer[globalStepIdx % customer.length] }]
-      : [{ title: label }];
+    const customerTitle = customer.length ? customer[globalStepIdx % customer.length] : label;
+    if (!isPassiveCustomerStep(customerTitle)) {
+      lanes.CUSTOMER_ACTION = [{ title: customerTitle }];
+    }
     if (evidence.length) {
       lanes.PHYSICAL_EVIDENCE = [{ title: evidence[globalStepIdx % evidence.length] }];
     }
@@ -189,7 +195,10 @@ function buildDemoBlueprintDraft(
     const steps = stepLabels.map((s) => {
       const idx = globalStepIdx++;
       const lanes: BlueprintDraftSpec["phases"][number]["steps"][number]["lanes"] = {};
-      lanes.CUSTOMER_ACTION = [{ title: customer[idx % customer.length] || s }];
+      const customerTitle = customer[idx % customer.length] || s;
+      if (!isPassiveCustomerStep(customerTitle)) {
+        lanes.CUSTOMER_ACTION = [{ title: customerTitle }];
+      }
       if (evidence[idx % evidence.length]) {
         lanes.PHYSICAL_EVIDENCE = [{ title: evidence[idx % evidence.length] }];
       }

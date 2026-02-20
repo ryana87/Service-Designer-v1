@@ -286,12 +286,7 @@ async function createCrossLaneConnections(blueprintId: string) {
       }
     };
 
-    if (customerCard && fsCard) {
-      await createConn(customerCard.id, "basic", fsCard.id, "complex");
-    }
-    if (fsCard && bsCard) {
-      await createConn(fsCard.id, "complex", bsCard.id, "complex");
-    }
+    // No within-column connections: sequence (customer → frontstage → backstage) is implied by layout.
     if (bsCard && nextFsCard) {
       await createConn(bsCard.id, "complex", nextFsCard.id, "complex");
     }
@@ -2021,6 +2016,43 @@ export async function createConnection(
   });
 
   if (existing) return existing;
+
+  // Reject same-column connections: load structure and build cardId → columnIndex map
+  const blueprintWithStructure = await prisma.serviceBlueprint.findUnique({
+    where: { id: blueprintId },
+    include: {
+      phases: {
+        orderBy: { order: "asc" },
+        include: {
+          columns: {
+            orderBy: { order: "asc" },
+            include: {
+              basicCards: true,
+              decisionCards: true,
+              teamSections: { include: { cards: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (blueprintWithStructure) {
+    const cardToColumn = new Map<string, number>();
+    let colIdx = 0;
+    for (const phase of blueprintWithStructure.phases) {
+      for (const column of phase.columns) {
+        for (const card of column.basicCards) cardToColumn.set(card.id, colIdx);
+        for (const card of column.decisionCards) cardToColumn.set(card.id, colIdx);
+        for (const section of column.teamSections) {
+          for (const card of section.cards) cardToColumn.set(card.id, colIdx);
+        }
+        colIdx++;
+      }
+    }
+    const srcCol = cardToColumn.get(sourceCardId);
+    const tgtCol = cardToColumn.get(targetCardId);
+    if (srcCol !== undefined && tgtCol !== undefined && srcCol === tgtCol) return null;
+  }
 
   const connection = await prisma.blueprintConnection.create({
     data: {

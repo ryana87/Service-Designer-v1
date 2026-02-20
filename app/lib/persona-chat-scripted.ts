@@ -67,6 +67,26 @@ function normalizePrompt(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+export type PersonaWriteBackType = "pain_point" | "opportunity";
+
+/** Which write-back actions to offer for a given scripted response (Persona Insight → Write-Back). */
+const WRITE_BACK_BY_PROMPT: Record<string, PersonaWriteBackType[]> = {
+  "where do you waste the most time in this process?": ["pain_point", "opportunity"],
+  "what feels unnecessarily manual or repetitive?": ["pain_point", "opportunity"],
+  "what would make the biggest practical difference tomorrow?": ["opportunity"],
+  "where do handoffs break down between teams?": ["pain_point", "opportunity"],
+  "what information is missing at key transitions?": ["pain_point", "opportunity"],
+  "where does misunderstanding create rework?": ["pain_point", "opportunity"],
+  "what risks do you see in this journey?": ["pain_point", "opportunity"],
+  "what recurring issues does this remind you of?": ["pain_point", "opportunity"],
+  "where could governance or accountability fail?": ["pain_point", "opportunity"],
+};
+
+export function getWriteBackTypes(prompt: string): PersonaWriteBackType[] {
+  const key = normalizePrompt(prompt);
+  return WRITE_BACK_BY_PROMPT[key] ?? [];
+}
+
 export function getScriptedResponse(
   prompt: string,
   archetype: PersonaChatArchetype

@@ -10,6 +10,7 @@ import {
   type Insight,
   type BlueprintData,
 } from "../../../../lib/validation";
+import { scoreBlueprint } from "../../../../lib/blueprint-scoring";
 
 // ============================================
 // BLUEPRINT INSIGHTS CONTEXT
@@ -87,6 +88,35 @@ export function BlueprintInsightsProvider({
     <BlueprintInsightsContext.Provider value={value}>
       {children}
     </BlueprintInsightsContext.Provider>
+  );
+}
+
+// ============================================
+// BLUEPRINT SCORES STRIP
+// ============================================
+
+export function BlueprintScoresStrip({
+  blueprintData,
+}: {
+  blueprintData: BlueprintData;
+}) {
+  const scores = React.useMemo(() => scoreBlueprint(blueprintData), [blueprintData]);
+  return (
+    <div
+      className="flex items-center gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-sidebar)] px-3 py-1.5"
+      style={{ fontSize: "var(--font-size-meta)" }}
+      title="Automation opportunity (0–100), Risk of rework, Cross-team handoffs"
+    >
+      <span className="text-[var(--text-muted)]">
+        Automation: <strong className="text-[var(--text-primary)]">{scores.automationOpportunity}</strong>
+      </span>
+      <span className="text-[var(--text-muted)]">
+        Rework: <strong className="text-[var(--text-primary)]">{scores.riskOfRework}</strong>
+      </span>
+      <span className="text-[var(--text-muted)]">
+        Handoffs: <strong className="text-[var(--text-primary)]">{scores.handoffDensity}</strong>
+      </span>
+    </div>
   );
 }
 

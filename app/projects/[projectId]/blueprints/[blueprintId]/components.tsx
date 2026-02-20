@@ -24,7 +24,7 @@ import {
 } from "./ConnectionOverlay";
 import { useBlueprintCache } from "./BlueprintCacheContext";
 import type { PainPoint } from "./cache-types";
-import { BlueprintInsightsControls } from "./InsightsWrapper";
+import { BlueprintInsightsControls, BlueprintScoresStrip } from "./InsightsWrapper";
 import { useSelectMode } from "../../../../contexts/SelectModeContext";
 
 // ============================================
@@ -527,38 +527,19 @@ export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }
         
         // Prevent self-connections
         if (sourceCard && targetCard && sourceCard.id !== targetCard.id) {
-          // Check if same column
           const isSameColumn = sourceCard.columnIndex === targetCard.columnIndex;
-          
-          // Check if this is a vertical connector (same column, downward)
-          const isVerticalDownward = 
-            isSameColumn &&
-            targetCard.y > sourceCard.y + sourceCard.height - 10;
-          
-          // RULE: Same-column connections only allowed for Decision → card directly below
+
+          // RULE: No same-column connections (sequence is implied by order)
           if (isSameColumn) {
-            if (dragStart.cardType !== "decision") {
-              alert("Same-column connections are only allowed from a Decision to the card directly below.");
-              setIsDragging(false);
-              setIsDraggingFromBottom(false);
-              setDragStart(null);
-              setDragEnd(null);
-              setHoveredTargetId(null);
-              return;
-            }
-            
-            // Only allow downward connection for decisions
-            if (!isVerticalDownward) {
-              alert("Decision cards can only connect vertically to the card directly below.");
-              setIsDragging(false);
-              setIsDraggingFromBottom(false);
-              setDragStart(null);
-              setDragEnd(null);
-              setHoveredTargetId(null);
-              return;
-            }
+            alert("Connections in the same column are not allowed. Sequence is implied by order (customer → frontstage → backstage). For cross-stage flow, add a new column.");
+            setIsDragging(false);
+            setIsDraggingFromBottom(false);
+            setDragStart(null);
+            setDragEnd(null);
+            setHoveredTargetId(null);
+            return;
           }
-          
+
           // RULE: No backward connections (loops) - only allow left-to-right
           if (targetCard.columnIndex < sourceCard.columnIndex) {
             alert("Backward connections are not supported. Connections must go from left to right.");
@@ -569,29 +550,7 @@ export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }
             setHoveredTargetId(null);
             return;
           }
-          
-          // Prevent multiple vertical connectors from the same decision card
-          if (isVerticalDownward && dragStart.cardType === "decision") {
-            const existingVertical = blueprint.connections.find(conn => 
-              conn.sourceCardId === dragStart.cardId &&
-              conn.sourceCardType === "decision"
-            );
-            
-            // Check if existing connection is also vertical (same column, downward)
-            if (existingVertical) {
-              const existingTarget = cardPositions.find(c => c.id === existingVertical.targetCardId);
-              if (existingTarget && existingTarget.columnIndex === sourceCard.columnIndex && existingTarget.y > sourceCard.y) {
-                alert("Decision cards can only have one vertical connector. Please delete the existing vertical connector first.");
-                setIsDragging(false);
-                setIsDraggingFromBottom(false);
-                setDragStart(null);
-                setDragEnd(null);
-                setHoveredTargetId(null);
-                return;
-              }
-            }
-          }
-          
+
           cache.createConnection(
             dragStart.cardId,
             dragStart.cardType,
@@ -652,15 +611,22 @@ export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }
     return result;
   }, [blueprint.connections]);
 
-  // Check if drag target is valid
-  // Allow connections in any direction (including loops/backwards)
-  // Only prevent self-connections
-  const isDragTargetValid = useCallback(() => {
-    if (!dragStart || !hoveredTargetId) return false;
-    const sourceCard = cardPositions.find(c => c.id === dragStart.cardId);
-    const targetCard = cardPositions.find(c => c.id === hoveredTargetId);
-    if (!sourceCard || !targetCard) return false;
-    return sourceCard.id !== targetCard.id;
+  // Check if drag target is valid: no self-connections, no same-column connections
+  const isDragTargetValid = useCallback((): boolean => {
+    try {
+      if (!dragStart || !hoveredTargetId) return false;
+      const sourceCard = cardPositions.find(c => c.id === dragStart.cardId);
+      const targetCard = cardPositions.find(c => c.id === hoveredTargetId);
+      if (!sourceCard || !targetCard) return false;
+      if (sourceCard.id === targetCard.id) return false;
+      const srcCol = sourceCard.columnIndex;
+      const tgtCol = targetCard.columnIndex;
+      if (typeof srcCol !== "number" || typeof tgtCol !== "number") return false;
+      if (srcCol === tgtCol) return false;
+      return true;
+    } catch {
+      return false;
+    }
   }, [dragStart, hoveredTargetId, cardPositions]);
 
   // Build column index map for cards and track columns with team sections
@@ -813,6 +779,7 @@ export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }
           </h1>
           <div className="flex items-center gap-3">
             <BlueprintSelectModeToolbar allCardIds={getAllCardIds(blueprint)} />
+            <BlueprintScoresStrip blueprintData={blueprintValidationData} />
             <BlueprintInsightsControls blueprintData={blueprintValidationData} />
             <CompletenessButton artifactType="blueprint" data={blueprintValidationData} />
             <div className="h-6 w-px bg-[var(--border-subtle)]" />
@@ -948,7 +915,7 @@ export function BlueprintEditor({ projectId, journeyMaps, blueprints, personas }
   );
 }
 
-// Drag preview line component
+// Drag preview line component (guards against NaN for SVG/layout)
 function DragPreviewLine({
   startPoint,
   endPoint,
@@ -958,9 +925,13 @@ function DragPreviewLine({
   endPoint: Point;
   isValid: boolean;
 }) {
-  const midX = (startPoint.x + endPoint.x) / 2;
-  const pathString = `M ${startPoint.x} ${startPoint.y} L ${midX} ${startPoint.y} L ${midX} ${endPoint.y} L ${endPoint.x} ${endPoint.y}`;
-  
+  const x1 = Number(startPoint.x) || 0;
+  const y1 = Number(startPoint.y) || 0;
+  const x2 = Number(endPoint.x) || 0;
+  const y2 = Number(endPoint.y) || 0;
+  const midX = (x1 + x2) / 2;
+  const pathString = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+
   return (
     <path
       d={pathString}

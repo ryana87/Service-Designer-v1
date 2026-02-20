@@ -566,6 +566,61 @@ export async function updateActionOpportunities(
 }
 
 // ============================================
+// PERSONA INSIGHT WRITE-BACK
+// ============================================
+
+export type AddPersonaInsightResult = { ok: true } | { ok: false; error: string };
+
+export async function addPersonaInsightToJourney(
+  projectId: string,
+  journeyMapId: string,
+  type: "pain_point" | "opportunity",
+  text: string,
+  actionId?: string
+): Promise<AddPersonaInsightResult> {
+  const journeyMap = await prisma.journeyMap.findFirst({
+    where: { id: journeyMapId, projectId },
+    include: {
+      phases: {
+        orderBy: { order: "asc" },
+        include: {
+          actions: { orderBy: { order: "asc" } },
+        },
+      },
+    },
+  });
+  if (!journeyMap) return { ok: false, error: "Journey map not found." };
+
+  let targetActionId = actionId;
+  if (!targetActionId) {
+    const firstPhase = journeyMap.phases[0];
+    const firstAction = firstPhase?.actions[0];
+    if (!firstAction) return { ok: false, error: "No actions in journey map." };
+    targetActionId = firstAction.id;
+  }
+
+  const action = await prisma.journeyAction.findFirst({
+    where: { id: targetActionId, phase: { journeyMapId } },
+  });
+  if (!action) return { ok: false, error: "Action not found." };
+
+  const trimmedText = text.trim().slice(0, 500);
+  if (!trimmedText) return { ok: false, error: "No text to add." };
+
+  if (type === "pain_point") {
+    const existing = action.painPoints ? (JSON.parse(action.painPoints) as PainPoint[]) : [];
+    const updated = [...existing, { text: trimmedText, severity: "MEDIUM" as const }];
+    await updateActionPainPoints(targetActionId, updated);
+  } else {
+    const existing = action.opportunities ? (JSON.parse(action.opportunities) as Opportunity[]) : [];
+    const updated = [...existing, { text: trimmedText, impact: "MEDIUM" as const }];
+    await updateActionOpportunities(targetActionId, updated);
+  }
+
+  return { ok: true };
+}
+
+// ============================================
 // BULK SYNC (for local cache)
 // ============================================
 

@@ -8,6 +8,8 @@ import { ExportModal } from "../../components/ExportModal";
 import { CompareModal } from "../../components/CompareModal";
 import { VersionHistoryModal } from "../../components/VersionHistoryModal";
 import { CreateArtifactModal } from "../../components/CreateArtifactModal";
+import { TraceabilityExportModal } from "./TraceabilityExportModal";
+import { PatternsModal } from "./PatternsModal";
 import { OnboardingWizardModal } from "../../onboarding/OnboardingWizardModal";
 import { ResearchIntakeModal } from "../../onboarding/ResearchIntakeModal";
 import { updateProject, createJourneyMapInProject, createJourneyMapFromSpec, renameJourneyMap, deleteJourneyMap, duplicateJourneyMap, addPersonaFromTemplate, deletePersona } from "./actions";
@@ -88,6 +90,8 @@ export function ProjectOverviewContent({ projectId }: ProjectOverviewContentProp
 
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showTraceabilityModal, setShowTraceabilityModal] = useState(false);
+  const [showPatternsModal, setShowPatternsModal] = useState(false);
 
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
@@ -279,6 +283,24 @@ export function ProjectOverviewContent({ projectId }: ProjectOverviewContentProp
               <span>Compare</span>
             </button>
           )}
+          {journeyMaps.length >= 1 && blueprints.length >= 1 && (
+            <button
+              onClick={() => setShowTraceabilityModal(true)}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
+              style={{ fontSize: "var(--font-size-cell)" }}
+            >
+              <AppIcon name="article" size="xs" />
+              <span>Traceability</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowPatternsModal(true)}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
+            style={{ fontSize: "var(--font-size-cell)" }}
+          >
+            <AppIcon name="lightbulb" size="xs" />
+            <span>Patterns</span>
+          </button>
           <button
             onClick={() => setShowExportModal(true)}
             className="flex items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-1.5 font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
@@ -638,6 +660,17 @@ export function ProjectOverviewContent({ projectId }: ProjectOverviewContentProp
           blueprints={blueprints.map((b) => ({ id: b.id, name: b.name }))}
           onClose={() => setShowVersionHistoryModal(false)}
         />
+      )}
+      {showTraceabilityModal && (
+        <TraceabilityExportModal
+          projectId={projectId}
+          journeyMaps={journeyMaps.map((m) => ({ id: m.id, name: m.name }))}
+          blueprints={blueprints.map((b) => ({ id: b.id, name: b.name }))}
+          onClose={() => setShowTraceabilityModal(false)}
+        />
+      )}
+      {showPatternsModal && (
+        <PatternsModal projectId={projectId} onClose={() => setShowPatternsModal(false)} />
       )}
     </div>
   );
