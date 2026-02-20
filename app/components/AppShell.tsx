@@ -509,9 +509,17 @@ function AiSidebar({ onClose }: { onClose: () => void }) {
 // DEMO AI SIDEBAR (Scripted chat)
 // ============================================
 
+// Thinking dots animation for "AI is typing" state
+function ThinkingDots() {
+  return <span className="animate-pulse" style={{ fontSize: "inherit" }}>...</span>;
+}
+
 type DemoContextType = NonNullable<ReturnType<typeof useDemoOptional>>;
 
 type SidebarPersona = { id: string; name: string; avatarUrl: string | null; templateId: string | null };
+
+const THINKING_MS = 700;
+const TYPING_INTERVAL_MS = 28;
 
 function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType; onClose: () => void; personas?: SidebarPersona[] }) {
   const [inputValue, setInputValue] = useState("");
@@ -522,6 +530,17 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
   const [personaMessages, setPersonaMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [personaArchetype, setPersonaArchetype] = useState<PersonaChatArchetype>("pragmatist");
   const [personaInput, setPersonaInput] = useState("");
+  // Demo chat: typing animation for last assistant message
+  const [demoTypingState, setDemoTypingState] = useState<{
+    messageId: string;
+    content: string;
+    phase: "thinking" | "typing";
+    displayedLength: number;
+  } | null>(null);
+  // Persona chat: pending response to type out
+  const [personaTypingState, setPersonaTypingState] = useState<{ fullText: string } | null>(null);
+  const personaTypingLengthRef = useRef(0);
+  const personaTypingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const selectedPersona = selectedPersonaId ? personas.find((p) => p.id === selectedPersonaId) : null;
   const isFrontlinePersona = selectedPersona?.templateId === DEMO_CHAT_ALLOWED_TEMPLATE_ID;
@@ -536,10 +555,87 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
 
   useEffect(() => {
     scrollToBottom();
-  }, [demo.chatMessages]);
+  }, [demo.chatMessages, demoTypingState]);
   useEffect(() => {
     scrollPersonaToBottom();
-  }, [personaMessages]);
+  }, [personaMessages, personaTypingState]);
+
+  // Demo chat: when a new assistant message appears, run thinking then type-out
+  const lastDemoMessage = demo.chatMessages[demo.chatMessages.length - 1];
+  useEffect(() => {
+    if (!lastDemoMessage || lastDemoMessage.role !== "assistant") {
+      if (demoTypingState) setDemoTypingState(null);
+      return;
+    }
+    if (demoTypingState?.messageId === lastDemoMessage.id) return;
+    setDemoTypingState({
+      messageId: lastDemoMessage.id,
+      content: lastDemoMessage.content,
+      phase: "thinking",
+      displayedLength: 0,
+    });
+  }, [lastDemoMessage?.id, lastDemoMessage?.content, lastDemoMessage?.role]);
+
+  useEffect(() => {
+    if (!demoTypingState) return;
+    if (demoTypingState.phase === "thinking") {
+      const t = setTimeout(() => {
+        setDemoTypingState((s) => s ? { ...s, phase: "typing" } : null);
+      }, THINKING_MS);
+      return () => clearTimeout(t);
+    }
+    if (demoTypingState.phase !== "typing") return;
+    if (demoTypingState.displayedLength >= demoTypingState.content.length) {
+      setDemoTypingState(null);
+      return;
+    }
+    const interval = setInterval(() => {
+      setDemoTypingState((s) => {
+        if (!s || s.phase !== "typing") return s;
+        const next = s.displayedLength + 1;
+        if (next >= s.content.length) return { ...s, displayedLength: s.content.length };
+        return { ...s, displayedLength: next };
+      });
+    }, TYPING_INTERVAL_MS);
+    return () => clearInterval(interval);
+    // Only re-run when phase or messageId changes, not on every displayedLength tick
+  }, [demoTypingState?.phase, demoTypingState?.messageId, demoTypingState?.content.length]);
+
+  // Clear demo typing state when we've finished showing the full message
+  useEffect(() => {
+    if (demoTypingState?.phase === "typing" && demoTypingState.displayedLength >= demoTypingState.content.length) {
+      setDemoTypingState(null);
+    }
+  }, [demoTypingState?.phase, demoTypingState?.displayedLength, demoTypingState?.content.length]);
+
+  // Persona chat: after adding "..." bubble, run thinking then type-out
+  useEffect(() => {
+    if (!personaTypingState || personaMessages.length === 0) return;
+    const fullText = personaTypingState.fullText;
+    const thinkingTimer = setTimeout(() => {
+      personaTypingLengthRef.current = 0;
+      personaTypingIntervalRef.current = setInterval(() => {
+        personaTypingLengthRef.current += 1;
+        setPersonaMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last.role !== "assistant") return prev;
+          const len = personaTypingLengthRef.current;
+          next[next.length - 1] = { ...last, text: fullText.slice(0, len) };
+          return next;
+        });
+        if (personaTypingLengthRef.current >= fullText.length) {
+          if (personaTypingIntervalRef.current) clearInterval(personaTypingIntervalRef.current);
+          personaTypingIntervalRef.current = null;
+          setPersonaTypingState(null);
+        }
+      }, TYPING_INTERVAL_MS);
+    }, THINKING_MS);
+    return () => {
+      clearTimeout(thinkingTimer);
+      if (personaTypingIntervalRef.current) clearInterval(personaTypingIntervalRef.current);
+    };
+  }, [personaTypingState?.fullText]);
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
@@ -554,16 +650,10 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
 
   const handlePersonaSend = (text: string) => {
     if (!text.trim() || !isFrontlinePersona) return;
-    setPersonaMessages((prev) => [...prev, { role: "user", text: text.trim() }]);
+    const response = getScriptedResponse(text.trim(), personaArchetype) ?? "I'm not sure how to answer that in this demo. Try one of the suggested questions above.";
+    setPersonaMessages((prev) => [...prev, { role: "user", text: text.trim() }, { role: "assistant", text: "..." }]);
     setPersonaInput("");
-    const response = getScriptedResponse(text.trim(), personaArchetype);
-    setPersonaMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        text: response ?? "I'm not sure how to answer that in this demo. Try one of the suggested questions above.",
-      },
-    ]);
+    setPersonaTypingState({ fullText: response });
   };
 
   const handleGenerate = () => {
@@ -683,7 +773,9 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
                         }`}
                         style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
                       >
-                        <p style={{ whiteSpace: "pre-wrap" }}>{m.text}</p>
+                        <p style={{ whiteSpace: "pre-wrap" }}>
+                          {m.role === "assistant" && m.text === "..." && personaTypingState ? <ThinkingDots /> : m.text}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -747,23 +839,32 @@ function DemoAiSidebar({ demo, onClose, personas = [] }: { demo: DemoContextType
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
-          {demo.chatMessages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-            >
+          {demo.chatMessages.map((message) => {
+            const isLastAssistant = message.role === "assistant" && message.id === demo.chatMessages[demo.chatMessages.length - 1]?.id;
+            const typing = isLastAssistant && demoTypingState?.messageId === message.id;
+            const showThinking = typing && demoTypingState.phase === "thinking";
+            const showTyping = typing && demoTypingState.phase === "typing";
+            const displayContent = showThinking ? null : showTyping ? demoTypingState.content.slice(0, demoTypingState.displayedLength) : message.content;
+            return (
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 ${
-                  message.role === "user"
-                    ? "bg-[var(--accent-primary)] text-white"
-                    : "bg-[var(--bg-sidebar)] text-[var(--text-primary)]"
-                }`}
-                style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
+                key={message.id}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 ${
+                    message.role === "user"
+                      ? "bg-[var(--accent-primary)] text-white"
+                      : "bg-[var(--bg-sidebar)] text-[var(--text-primary)]"
+                  }`}
+                  style={{ fontSize: "var(--font-size-cell)", lineHeight: 1.5 }}
+                >
+                  <p style={{ whiteSpace: "pre-wrap" }}>
+                    {showThinking ? <ThinkingDots /> : displayContent}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           
           {/* Generate button (shown only at step 6) */}
           {demo.showGenerateButton && (

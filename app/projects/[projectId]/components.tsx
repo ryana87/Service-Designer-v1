@@ -1035,7 +1035,7 @@ function PersonaLibrarySection({
       {PERSONA_LIBRARY_SEGMENTS.map((segment) => {
         const templates = segment.templateIds
           .map((id) => getPersonaTemplateById(id))
-          .filter(Boolean);
+          .filter((t): t is NonNullable<typeof t> => t != null);
         return (
           <div key={segment.id} className="mb-6">
             <h4
